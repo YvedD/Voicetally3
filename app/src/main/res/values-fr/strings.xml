@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_settings">🔧 Paramètres de l\'application</string>
+    <string name="auto_save_per_hour_title">Sauvegarde automatique chaque heure</string>
+    <string name="auto_save_per_hour_description">Sauvegarde automatiquement les comptages à la 58e minute de chaque heure</string>
+    <string name="speech_input_language">Langue d\'entrée vocale</string>
+
+    <string name="language_nl">Néerlandais</string>
+    <string name="language_en">Anglais</string>
+    <string name="language_fr">Français</string>
+</resources>

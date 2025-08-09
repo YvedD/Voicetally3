@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/nav_graph"
+    app:startDestination="@id/setupFragment">
+
+    <!-- ✅ 1) SetupFragment -->
+    <fragment
+        android:id="@+id/setupFragment"
+        android:name="com.yvesds.voicetally3.ui.setup.SetupFragment"
+        android:label="Setup" >
+        <action
+            android:id="@+id/action_setupFragment_to_mainFragment"
+            app:destination="@id/mainFragment" />
+    </fragment>
+
+    <!-- ✅ 2) MainFragment -->
+    <fragment
+        android:id="@+id/mainFragment"
+        android:name="com.yvesds.voicetally3.ui.main.MainFragment"
+        android:label="Main">
+        <action
+            android:id="@+id/action_mainFragment_to_speciesSelectionFragment"
+            app:destination="@id/speciesSelectionFragment" />
+    </fragment>
+
+    <!-- ✅ 3) SpeciesSelectionFragment -->
+    <fragment
+        android:id="@+id/speciesSelectionFragment"
+        android:name="com.yvesds.voicetally3.ui.species.SpeciesSelectionFragment"
+        android:label="Selecteer Soorten" >
+        <action
+            android:id="@+id/action_speciesSelectionFragment_to_tallyFragment"
+            app:destination="@id/tallyFragment" />
+    </fragment>
+
+    <!-- ✅ 4) TallyFragment -->
+    <fragment
+        android:id="@+id/tallyFragment"
+        android:name="com.yvesds.voicetally3.ui.tally.TallyFragment"
+        android:label="Tally Teller" >
+        <action
+            android:id="@+id/action_tallyFragment_to_speciesSelectionFragment"
+            app:destination="@id/speciesSelectionFragment" />
+    </fragment>
+
+    <!-- ✅ 5) Instellingen -->
+    <fragment
+        android:id="@+id/settingsFragment"
+        android:name="com.yvesds.voicetally3.ui.settings.SettingsFragment"
+        android:label="Instellingen" />
+
+    <!-- ✅ 6) Alias Editor -->
+    <fragment
+        android:id="@+id/aliasEditorFragment"
+        android:name="com.yvesds.voicetally3.utils.aliasses.AliasEditorFragment"
+        android:label="Alias Editor"
+        tools:layout="@layout/fragment_alias_editor" >
+        <action
+            android:id="@+id/action_aliasEditorFragment_to_speciesAliasEditorFragment"
+            app:destination="@id/speciesAliasEditorFragment" />
+    </fragment>
+
+    <!-- ✅ 7) SpeciesAliasEditorFragment -->
+    <fragment
+        android:id="@+id/speciesAliasEditorFragment"
+        android:name="com.yvesds.voicetally3.utils.aliasses.SpeciesAliasEditorFragment"
+        android:label="Aliassen voor soort"
+        tools:layout="@layout/fragment_species_alias_editor" >
+        <argument
+            android:name="speciesName"
+            app:argType="string"
+            android:defaultValue="" />
+    </fragment>
+
+</navigation>

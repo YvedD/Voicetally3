@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/alias_editor_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="12dp">
+
+    <!-- ➕ Nieuw soort toevoegen knop -->
+    <Button
+        android:id="@+id/buttonAddSpecies"
+        style="@style/Widget.VoiceTally.Button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="➕ Soort toevoegen"
+        android:layout_marginBottom="6dp" />
+
+    <!-- 🔽 Titel (optioneel, visuele hint) -->
+    <TextView
+        android:id="@+id/text_species_hint"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="📝 Klik op een soort om aliassen te bewerken"
+        android:textAppearance="?android:attr/textAppearanceSmall"
+        android:textColor="@color/white"
+        android:paddingBottom="6dp" />
+
+    <!-- 📄 RecyclerView met soortnamen -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/recyclerViewAliasEditor"
+        android:textColor="@color/white"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:background="@color/black"
+        android:clipToPadding="false"
+        android:paddingBottom="8dp"
+        android:scrollbars="vertical" />
+</LinearLayout>

@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_settings">🔧 App Settings</string>
+    <string name="auto_save_per_hour_title">Auto save every hour</string>
+    <string name="auto_save_per_hour_description">Automatically saves counts at minute 58 each hour</string>
+    <string name="speech_input_language">Speech input language</string>
+
+    <string name="language_nl">Dutch</string>
+    <string name="language_en">English</string>
+    <string name="language_fr">French</string>
+</resources>

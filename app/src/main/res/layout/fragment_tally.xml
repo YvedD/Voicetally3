@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/black"
+    android:orientation="vertical"
+    android:padding="8dp">
+
+    <!-- Speech Log: volle breedte -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/recyclerViewSpeechLog"
+        android:layout_width="match_parent"
+        android:layout_height="200dp"
+        android:background="@drawable/border_button"
+        android:padding="4dp"
+        android:scrollbars="vertical" />
+
+    <!-- Buttons onder log -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:paddingTop="8dp">
+
+        <Button
+            android:id="@+id/buttonEndSession"
+            style="@style/Widget.VoiceTally.Button"
+            android:layout_width="0dp"
+            android:layout_height="60dp"
+            android:layout_margin="4dp"
+            android:layout_weight="1"
+            android:drawableLeft="@android:drawable/ic_menu_save"
+            android:drawablePadding="4dp"
+            android:text="Stop + Save"
+            android:textSize="12sp" />
+
+        <Button
+            android:id="@+id/buttonAddSpecies"
+            style="@style/Widget.VoiceTally.Button"
+            android:layout_width="0dp"
+            android:layout_height="60dp"
+            android:layout_margin="4dp"
+            android:layout_weight="1"
+            android:drawableLeft="@android:drawable/ic_input_add"
+            android:drawablePadding="4dp"
+            android:text="Add"
+            android:textSize="12sp" />
+
+    </LinearLayout>
+
+    <!-- Tellers onderaan -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/recyclerViewTally"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:padding="4dp"
+        android:scrollbars="vertical" />
+
+</LinearLayout>

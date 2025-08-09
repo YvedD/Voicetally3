@@ -1,0 +1,33 @@
+# Android/Gradle
+*.iml
+.gradle/
+local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+/.idea/shelf
+.DS_Store
+/build/
+**/build/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Packages + artifacts
+*.apk
+*.ap_
+*.aab
+
+# Signing
+*.keystore
+*.jks
+key.properties
+
+# Logs
+*.log
+
+# Keep Gradle wrapper JAR
+!gradle/wrapper/gradle-wrapper.jar

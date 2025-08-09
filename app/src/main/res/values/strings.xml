@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_settings">🔧 App instellingen</string>
+    <string name="auto_save_per_hour_title">Per uur automatisch opslaan</string>
+    <string name="auto_save_per_hour_description">Slaat automatisch op elke 58ste minuut de tellingen op</string>
+    <string name="speech_input_language">Spraak invoertaal</string>
+
+    <string name="language_nl">Nederlands</string>
+    <string name="language_en">English</string>
+    <string name="language_fr">Français</string>
+    <string name="maplibre_token" translatable="false">dbWJYj93ONIO8qNjwuUc</string>
+
+</resources>

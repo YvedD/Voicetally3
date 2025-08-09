@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<HorizontalScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/row_scroll_container"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:scrollbars="horizontal"
+    android:paddingVertical="4dp">
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingHorizontal="8dp"
+        android:gravity="center_vertical">
+
+        <!-- Canonieke naam -->
+        <TextView
+            android:id="@+id/textSpeciesName"
+            android:layout_width="120dp"
+            android:layout_height="wrap_content"
+            android:text="Soortnaam"
+            android:textStyle="bold"
+            android:textSize="11sp"
+            android:textColor="@color/white"
+            android:padding="4dp"
+            android:maxLines="1" />
+
+        <!-- Aliasvelden 1-20 -->
+        <EditText android:id="@+id/editAlias1" style="@style/AliasFieldStyle" />
+        <EditText android:id="@+id/editAlias2" style="@style/AliasFieldStyle" />
+        <EditText android:id="@+id/editAlias3" style="@style/AliasFieldStyle" />
+        <EditText android:id="@+id/editAlias4" style="@style/AliasFieldStyle" />
+        <EditText android:id="@+id/editAlias5" style="@style/AliasFieldStyle" />
+        <EditText android:id="@+id/editAlias6" style="@style/AliasFieldStyle" />
+        <EditText android:id="@+id/editAlias7" style="@style/AliasFieldStyle" />
+        <EditText android:id="@+id/editAlias8" style="@style/AliasFieldStyle" />
+        <EditText android:id="@+id/editAlias9" style="@style/AliasFieldStyle" />
+        <EditText android:id="@+id/editAlias10" style="@style/AliasFieldStyle" />
+        <EditText android:id="@+id/editAlias11" style="@style/AliasFieldStyle" />
+        <EditText android:id="@+id/editAlias12" style="@style/AliasFieldStyle" />
+        <EditText android:id="@+id/editAlias13" style="@style/AliasFieldStyle" />
+        <EditText android:id="@+id/editAlias14" style="@style/AliasFieldStyle" />
+        <EditText android:id="@+id/editAlias15" style="@style/AliasFieldStyle" />
+        <EditText android:id="@+id/editAlias16" style="@style/AliasFieldStyle" />
+        <EditText android:id="@+id/editAlias17" style="@style/AliasFieldStyle" />
+        <EditText android:id="@+id/editAlias18" style="@style/AliasFieldStyle" />
+        <EditText android:id="@+id/editAlias19" style="@style/AliasFieldStyle" />
+        <EditText android:id="@+id/editAlias20" style="@style/AliasFieldStyle" />
+
+    </LinearLayout>
+</HorizontalScrollView>

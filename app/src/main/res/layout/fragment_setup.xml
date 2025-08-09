@@ -1,0 +1,25 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:padding="24dp"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:background="@color/black"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="24dp"
+        android:gravity="center"
+        android:text="📂 Deze app wil bestanden opslaan in Documents/VoiceTally\n Is dat OK?"
+        android:textColor="@color/white"
+        android:textSize="12sp" />
+
+    <Button
+        android:id="@+id/buttonChooseFolder"
+        style="@style/Widget.VoiceTally.Button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Bevestig hierna het gebruik van 'Documents'\n Alle mappen en bestanden worden voor u aangemaakt\n\n Klik hier om verder te gaan "
+        android:textAllCaps="false" />
+</LinearLayout>

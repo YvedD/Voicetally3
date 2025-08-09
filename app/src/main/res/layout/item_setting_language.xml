@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/layoutLanguageSetting"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_margin="4dp"
+    android:layout_marginLeft="10dp"
+    android:layout_marginRight="10dp"
+    android:background="@drawable/border_card"
+    android:orientation="vertical"
+    android:padding="12dp">
+
+    <!-- 🔴 Melding herstart vereist -->
+    <TextView
+        android:id="@+id/textViewRestartRequired"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="8dp"
+        android:text="⚠️ Wijziging van taal wordt actief na herstart van de app."
+        android:textColor="@color/red"
+        android:textSize="14sp" />
+
+    <!-- 🔵 Titel van de setting -->
+    <TextView
+        android:id="@+id/textViewLanguageTitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="8dp"
+        android:text="@string/speech_input_language"
+        android:textColor="@color/white"
+        android:textSize="16sp" />
+
+    <!-- ✅ RadioGroup met tekst links en button rechts -->
+    <RadioGroup
+        android:id="@+id/radioGroupLanguages"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <!-- Nederlands -->
+        <RadioButton
+            android:id="@+id/radioNl"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/border_card"
+            android:text="@string/language_nl"
+            android:textColor="@color/white" />
+
+        <!-- English -->
+        <RadioButton
+            android:id="@+id/radioEn"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/border_card"
+            android:text="@string/language_en"
+            android:textColor="@color/white" />
+
+        <!-- Français -->
+        <RadioButton
+            android:id="@+id/radioFr"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/border_card"
+            android:text="@string/language_fr"
+            android:textColor="@color/white" />
+    </RadioGroup>
+
+</LinearLayout>

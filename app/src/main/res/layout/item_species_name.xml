@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/itemContainer"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_margin="6dp"
+    android:background="@drawable/bg_edittext_container"
+    android:clickable="true"
+    android:foreground="?attr/selectableItemBackground"
+    android:focusable="true">
+
+    <TextView
+        android:id="@+id/textSpeciesName"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="16dp"
+        android:text="Soortnaam"
+        android:textSize="14sp"
+        android:textColor="@color/white"
+        android:background="@android:color/transparent" />
+    </FrameLayout>
