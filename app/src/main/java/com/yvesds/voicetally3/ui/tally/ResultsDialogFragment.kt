@@ -71,7 +71,7 @@ class ResultsDialogFragment : DialogFragment() {
                     append("🌬️ Wind: ${weather.windspeed} km/u (${weatherManager.toBeaufort(weather.windspeed)} Bf), ${weatherManager.toCompass(weather.winddirection)}\n")
                     append("☁️ Bewolking: ${weatherManager.toOctas(weather.cloudcover)}/8\n")
                     append("👁️ Zicht: ${weather.visibility} m\n")
-                    append("🧭 Luchtdruk: ${weather.pressure * 100} Pa\n")
+                    append("🧭 Luchtdruk: ${weather.pressure} hPa\n")
                     append("📝 Weer: ${weatherManager.getWeatherDescription(weather.weathercode)}\n")
                 }
             }

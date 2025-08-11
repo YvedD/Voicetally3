@@ -112,7 +112,7 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
                         LogEntry(
                             text = "✅ Final: ${spokenText.lowercase()}",
                             showInUi = showFinals,
-                            includeInExport = showFinals,
+                            includeInExport = true,
                             type = LogType.FINAL
                         )
                     )
@@ -123,7 +123,7 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
                         LogEntry(
                             text = "⚠️ Final duplicate ignored",
                             showInUi = showWarnings,
-                            includeInExport = showWarnings,
+                            includeInExport = true,
                             type = LogType.WARNING
                         )
                     )
@@ -136,7 +136,7 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
                     LogEntry(
                         text = "🔄 Partial: ${partial.lowercase()}",
                         showInUi = showPartials,
-                        includeInExport = showPartials,
+                        includeInExport = true,
                         type = LogType.PARTIAL
                     )
                 )
@@ -147,7 +147,7 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
                     LogEntry(
                         text = "❌ Fout: $error",
                         showInUi = showErrors,
-                        includeInExport = showErrors,
+                        includeInExport = true,
                         type = LogType.ERROR
                     )
                 )
@@ -192,7 +192,7 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
             LogEntry(
                 text = text,
                 showInUi = showInUi,
-                includeInExport = showInUi,
+                includeInExport = true,
                 type = type
             )
         )
@@ -244,7 +244,7 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
             val showWarnings = sharedPrefsHelper.getBoolean(SettingsKeys.LOG_WARNINGS, true)
             val showErrors = sharedPrefsHelper.getBoolean(SettingsKeys.LOG_ERRORS, true)
 
-            // Maak unieke set binnen dit final-result (geen duplicates binnen één utterance)
+            // Maak unieke set binnen dit final-result (geen duplicates binnen één spraakinvoer)
             val seenInThisUtterance = mutableSetOf<String>()
 
             chunks.forEach { (canonicalName, amount) ->
