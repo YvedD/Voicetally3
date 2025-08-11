@@ -12,6 +12,9 @@ import android.widget.TextView
 import androidx.fragment.app.DialogFragment
 import androidx.fragment.app.activityViewModels
 import androidx.lifecycle.lifecycleScope
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationTokenSource
 import com.yvesds.voicetally3.R
 import com.yvesds.voicetally3.data.SharedPrefsHelper
 import com.yvesds.voicetally3.managers.StorageManager
@@ -24,6 +27,9 @@ import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
+import org.osmdroid.views.overlay.Polygon
+import org.osmdroid.views.overlay.MapEventsOverlay
+import org.osmdroid.events.MapEventsReceiver
 import java.io.OutputStream
 import java.text.SimpleDateFormat
 import java.util.*
@@ -39,6 +45,8 @@ class ResultsDialogFragment : DialogFragment() {
     @Inject lateinit var weatherManager: WeatherManager
 
     private var mapView: MapView? = null
+    private var marker: Marker? = null
+    private var accuracyCircle: Polygon? = null
 
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
         val dialog = Dialog(requireContext(), android.R.style.Theme_Black_NoTitleBar_Fullscreen)
@@ -46,9 +54,10 @@ class ResultsDialogFragment : DialogFragment() {
         dialog.setContentView(R.layout.dialog_results)
 
         val tallyMap = sharedSpeciesViewModel.tallyMap.value.orEmpty()
-        val txtResults = dialog.findViewById<TextView>(R.id.txtResults)
+        val txtResults: TextView = dialog.findViewById(R.id.txtResults)
         mapView = dialog.findViewById(R.id.mapViewResults)
 
+        // Fallback-coördinaten indien (nog) geen GPS bekend is
         val location = sharedSpeciesViewModel.gpsLocation.value
         val lat = location?.first ?: 51.0
         val lon = location?.second ?: 4.0
@@ -57,35 +66,35 @@ class ResultsDialogFragment : DialogFragment() {
             val weather = weatherManager.fetchFullWeather(requireContext())
 
             val message = buildString {
-                append("📊 Tellingsoverzicht:\n\n")
+                append(" Tellingsoverzicht:\n\n")
                 tallyMap.entries.sortedBy { it.key }.forEach { entry ->
                     append("${entry.key}: ${entry.value}\n")
                 }
-
                 if (weather != null) {
-                    append("\n🌦️ Weerbericht\n\n")
-                    append("📍 Locatie: ${weather.locationName}\n")
-                    append("🕒 Tijdstip: ${weather.time}\n")
-                    append("🌡️ Temp: ${"%.1f".format(weather.temperature)} °C\n")
-                    append("🌧️ Neerslag: ${weather.precipitation} mm\n")
-                    append("🌬️ Wind: ${weather.windspeed} km/u (${weatherManager.toBeaufort(weather.windspeed)} Bf), ${weatherManager.toCompass(weather.winddirection)}\n")
+                    append("\n️ Weerbericht\n\n")
+                    append(" Locatie: ${weather.locationName}\n")
+                    append(" Tijdstip: ${weather.time}\n")
+                    append("️ Temp: ${"%.1f".format(weather.temperature)} °C\n")
+                    append("️ Neerslag: ${weather.precipitation} mm\n")
+                    append("️ Wind: ${weather.windspeed} km/u (${weatherManager.toBeaufort(weather.windspeed)} Bf), ${weatherManager.toCompass(weather.winddirection)}\n")
                     append("☁️ Bewolking: ${weatherManager.toOctas(weather.cloudcover)}/8\n")
-                    append("👁️ Zicht: ${weather.visibility} m\n")
-                    append("🧭 Luchtdruk: ${weather.pressure} hPa\n")
-                    append("📝 Weer: ${weatherManager.getWeatherDescription(weather.weathercode)}\n")
+                    append("️ Zicht: ${weather.visibility} m\n")
+                    append(" Luchtdruk: ${weather.pressure} hPa\n")
+                    append(" Weer: ${weatherManager.getWeatherDescription(weather.weathercode)}\n")
                 }
             }
-
             txtResults.text = message
 
             initMap(lat, lon)
+
+            // Probeer direct een nauwkeurige, recente fix op te halen en update de kaart.
+            requestPreciseLocationUpdate()
 
             dialog.findViewById<Button>(R.id.btnOpslaanDelenReset).setOnClickListener {
                 saveAllFiles(tallyMap, dialog.window?.decorView, weather, true)
                 sharedSpeciesViewModel.resetAll()
                 dismiss()
             }
-
             dialog.findViewById<Button>(R.id.btnNieuweSessie).setOnClickListener {
                 saveAllFiles(tallyMap, dialog.window?.decorView, weather, false)
                 sharedSpeciesViewModel.resetAll()
@@ -97,26 +106,110 @@ class ResultsDialogFragment : DialogFragment() {
     }
 
     private fun initMap(lat: Double, lon: Double) {
-        Configuration.getInstance().load(requireContext(), requireContext().getSharedPreferences("osmdroid", 0))
-
+        Configuration.getInstance().load(
+            requireContext(),
+            requireContext().getSharedPreferences("osmdroid", 0)
+        )
         mapView?.apply {
             setTileSource(TileSourceFactory.MAPNIK)
-            controller.setZoom(15.0)
-            controller.setCenter(GeoPoint(lat, lon))
             setMultiTouchControls(true)
+            controller.setZoom(16.0) // iets dichterbij voor nauwkeuriger “gevoel”
+            controller.setCenter(GeoPoint(lat, lon))
 
-            val marker = Marker(this)
-            marker.position = GeoPoint(lat, lon)
-            marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-            marker.title = "GPS locatie"
-            overlays.add(marker)
+            // Marker (sleepbaar om kleine correcties door gebruiker toe te laten)
+            val m = Marker(this).apply {
+                position = GeoPoint(lat, lon)
+                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                title = "GPS locatie"
+                isDraggable = true
+                setOnMarkerDragListener(object : Marker.OnMarkerDragListener {
+                    override fun onMarkerDrag(p0: Marker?) {}
+                    override fun onMarkerDragEnd(p0: Marker?) {
+                        // Bij het loslaten: verplaats center en update cirkel
+                        p0?.position?.let { gp ->
+                            controller.animateTo(gp)
+                            updateAccuracyCircle(gp, null)
+                        }
+                    }
+                    override fun onMarkerDragStart(p0: Marker?) {}
+                })
+            }
+            marker = m
+            overlays.add(m)
+
+            // Maak long-press/tap mogelijk om de marker te verplaatsen (handmatige correctie)
+            val eventsOverlay = MapEventsOverlay(object : MapEventsReceiver {
+                override fun singleTapConfirmedHelper(p: GeoPoint?): Boolean = false
+                override fun longPressHelper(p: GeoPoint?): Boolean {
+                    if (p != null) {
+                        marker?.position = p
+                        controller.animateTo(p)
+                        updateAccuracyCircle(p, null)
+                        return true
+                    }
+                    return false
+                }
+            })
+            overlays.add(eventsOverlay)
         }
     }
 
+    /**
+     * Vraag een precieze, recente locatie op en update marker + (optioneel) accuraatheids-cirkel.
+     * Deze vervangt de initiële (mogelijk oudere) last known location.
+     */
+    private fun requestPreciseLocationUpdate() {
+        val fused = LocationServices.getFusedLocationProviderClient(requireActivity())
+        val cts = CancellationTokenSource()
+        fused.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, cts.token)
+            .addOnSuccessListener { loc ->
+                if (loc != null) {
+                    val gp = GeoPoint(loc.latitude, loc.longitude)
+                    // Center + marker update
+                    mapView?.controller?.animateTo(gp)
+                    marker?.position = gp
+                    // Teken accuraatheidscirkel (als bekend)
+                    val acc = if (loc.hasAccuracy()) loc.accuracy.toDouble() else null
+                    updateAccuracyCircle(gp, acc)
+                    // Bewaar ook in de gedeelde ViewModel voor export
+                    sharedSpeciesViewModel.setGpsLocation(loc.latitude, loc.longitude)
+                }
+            }
+            .addOnFailureListener {
+                // Geen update; we blijven op fallback/last known
+            }
+    }
+
+    /**
+     * Teken of update een eenvoudige “accuracy circle” rond de marker.
+     * @param center  middelpunt
+     * @param radiusMeters straal in meters; als null, verwijder de cirkel
+     */
+    private fun updateAccuracyCircle(center: GeoPoint, radiusMeters: Double?) {
+        val mv = mapView ?: return
+        // Verwijder oude cirkel
+        accuracyCircle?.let { mv.overlays.remove(it) }
+        accuracyCircle = null
+
+        if (radiusMeters != null && radiusMeters > 0) {
+            val circle = Polygon(mv).apply {
+                // pointsAsCircle: maak een polygon die een cirkel benadert
+                points = Polygon.pointsAsCircle(center, radiusMeters)
+                outlinePaint.strokeWidth = 2f
+                outlinePaint.alpha = 160
+                fillPaint.alpha = 60
+            }
+            accuracyCircle = circle
+            mv.overlays.add(circle)
+        }
+        mv.invalidate()
+    }
+
     private fun takeScreenshotOfView(view: View?): Bitmap {
-        val bitmap = Bitmap.createBitmap(view!!.width, view.height, Bitmap.Config.ARGB_8888)
+        val v = view ?: throw IllegalStateException("Decor view is null")
+        val bitmap = Bitmap.createBitmap(v.width, v.height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
-        view.draw(canvas)
+        v.draw(canvas)
         return bitmap
     }
 
@@ -126,18 +219,20 @@ class ResultsDialogFragment : DialogFragment() {
         weather: WeatherManager.FullWeather?,
         triggerShare: Boolean
     ) {
-        val location = sharedSpeciesViewModel.gpsLocation.value
-        val lat = location?.first
-        val lon = location?.second
-        val timestamp = getTimestamp()
+        // Gebruik de (eventueel handmatig gecorrigeerde) markerpositie als waarheid voor export.
+        val currentPos = marker?.position
+        val lat = currentPos?.latitude ?: sharedSpeciesViewModel.gpsLocation.value?.first
+        val lon = currentPos?.longitude ?: sharedSpeciesViewModel.gpsLocation.value?.second
 
+        val timestamp = getTimestamp()
         val bitmap = takeScreenshotOfView(view)
         val screenshotUri = saveScreenshotBitmap(bitmap, timestamp)
-
         val uris = saveCsvAndTxt(tallyMap, lat, lon, weather, timestamp).toMutableList()
         screenshotUri?.let { uris.add(it) }
 
-        if (triggerShare && uris.isNotEmpty()) shareFiles(ArrayList(uris))
+        if (triggerShare && uris.isNotEmpty()) {
+            shareFiles(ArrayList(uris))
+        }
     }
 
     private fun saveCsvAndTxt(
@@ -174,7 +269,6 @@ class ResultsDialogFragment : DialogFragment() {
                 append("${entry.key};${entry.value}\n")
             }
         }
-
         val csvUri = saveTextFile(csvFileName, csvContent, "text/csv")
         csvUri?.let { uris.add(it) }
 
@@ -195,7 +289,6 @@ class ResultsDialogFragment : DialogFragment() {
                 append("Omschrijving: ${weatherManager.getWeatherDescription(weather.weathercode)}\n")
             }
         }
-
         val txtUri = saveTextFile(txtFileName, txtContent, "text/plain")
         txtUri?.let { uris.add(it) }
 
@@ -205,10 +298,8 @@ class ResultsDialogFragment : DialogFragment() {
     private fun saveScreenshotBitmap(bitmap: Bitmap, timestamp: String): Uri? {
         val root = storageManager.getVoiceTallyRoot() ?: return null
         val exports = storageManager.getOrCreateSubfolder(root, "exports") ?: return null
-
         val fileName = "location_$timestamp.png"
         val file = storageManager.createFile(exports, "image/png", fileName) ?: return null
-
         return try {
             context?.contentResolver?.openOutputStream(file.uri)?.use { output: OutputStream ->
                 bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
@@ -223,7 +314,6 @@ class ResultsDialogFragment : DialogFragment() {
         val root = storageManager.getVoiceTallyRoot() ?: return null
         val exports = storageManager.getOrCreateSubfolder(root, "exports") ?: return null
         val file = storageManager.createFile(exports, mimeType, fileName) ?: return null
-
         return try {
             context?.contentResolver?.openOutputStream(file.uri)?.use { output ->
                 output.bufferedWriter().use { it.write(content) }
@@ -249,6 +339,13 @@ class ResultsDialogFragment : DialogFragment() {
         return SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.getDefault()).format(Date())
     }
 
-    override fun onResume() { super.onResume(); mapView?.onResume() }
-    override fun onPause() { super.onPause(); mapView?.onPause() }
+    override fun onResume() {
+        super.onResume()
+        mapView?.onResume()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        mapView?.onPause()
+    }
 }
