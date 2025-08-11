@@ -37,6 +37,7 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
     private val binding get() = _binding!!
 
     private val sharedSpeciesViewModel: SharedSpeciesViewModel by activityViewModels()
+
     private lateinit var tallyAdapter: TallyAdapter
     private lateinit var logAdapter: SpeechLogAdapter
     private lateinit var speechHelper: SpeechRecognitionHelper
@@ -46,6 +47,9 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
     @Inject lateinit var parsingUseCase: SpeechParsingUseCase
     @Inject lateinit var sharedPrefsHelper: SharedPrefsHelper
     @Inject lateinit var soundPlayer: SoundPlayer
+
+    /** Onthoud het laatst verwerkte FINAL-resultaat zodat we duplicates kunnen negeren. */
+    private var lastFinalProcessed: String? = null
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -85,7 +89,9 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
     private fun observeTallyMap() {
         viewLifecycleOwner.lifecycleScope.launch {
             sharedSpeciesViewModel.tallyMap.collectLatest { map ->
-                tallyAdapter.submitList(map.entries.sortedBy { it.key })
+                // Sorteer alfabetisch op soortnaam
+                val items = map.entries.sortedBy { it.key }
+                tallyAdapter.submitList(items)
             }
         }
     }
@@ -104,20 +110,10 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
 
         speechHelper = SpeechRecognitionHelper(
             context = requireContext(),
-            soundPlayer = soundPlayer,
             onFinalResult = { spokenText ->
-                if (parsingBuffer.shouldProcessFinal(spokenText)) {
-                    val showFinals = sharedPrefsHelper.getBoolean(SettingsKeys.LOG_FINALS, true)
-                    addLogLine(
-                        LogEntry(
-                            text = "✅ Final: ${spokenText.lowercase()}",
-                            showInUi = showFinals,
-                            includeInExport = true,
-                            type = LogType.FINAL
-                        )
-                    )
-                    parseAndUpdate(spokenText)
-                } else {
+                val normalized = spokenText.lowercase().trim()
+                // Simpele duplicate-guard i.p.v. parsingBuffer.shouldProcessFinal(...)
+                if (normalized == lastFinalProcessed) {
                     val showWarnings = sharedPrefsHelper.getBoolean(SettingsKeys.LOG_WARNINGS, true)
                     addLogLine(
                         LogEntry(
@@ -127,14 +123,27 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
                             type = LogType.WARNING
                         )
                     )
+                    return@SpeechRecognitionHelper
                 }
+                lastFinalProcessed = normalized
+
+                val showFinals = sharedPrefsHelper.getBoolean(SettingsKeys.LOG_FINALS, true)
+                addLogLine(
+                    LogEntry(
+                        text = "✅ Final: $normalized",
+                        showInUi = showFinals,
+                        includeInExport = true,
+                        type = LogType.FINAL
+                    )
+                )
+                parseAndUpdate(normalized)
             },
             onPartialResult = { partial ->
                 parsingBuffer.updatePartial(partial)
                 val showPartials = sharedPrefsHelper.getBoolean(SettingsKeys.LOG_PARTIALS, true)
                 addLogLine(
                     LogEntry(
-                        text = "🔄 Partial: ${partial.lowercase()}",
+                        text = " Partial: ${partial.lowercase()}",
                         showInUi = showPartials,
                         includeInExport = true,
                         type = LogType.PARTIAL
@@ -159,7 +168,6 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
         binding.buttonEndSession.setOnClickListener {
             ResultsDialogFragment().show(parentFragmentManager, "ResultsDialog")
         }
-
         binding.buttonAddSpecies.setOnClickListener {
             findNavController().navigate(R.id.action_tallyFragment_to_speciesSelectionFragment)
         }
@@ -169,7 +177,9 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
         val fusedLocationClient = LocationServices.getFusedLocationProviderClient(requireActivity())
         fusedLocationClient.lastLocation
             .addOnSuccessListener { location ->
-                location?.let { sharedSpeciesViewModel.setGpsLocation(it.latitude, it.longitude) }
+                location?.let {
+                    sharedSpeciesViewModel.setGpsLocation(it.latitude, it.longitude)
+                }
             }
     }
 
@@ -209,7 +219,7 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
         val enableExtraSounds = sharedPrefsHelper.getBoolean(SettingsKeys.ENABLE_EXTRA_SOUNDS, true)
 
         val debugInfo = """
-            🔧 [DEBUG Logging Settings]
+            [DEBUG Logging Settings]
             ➜ Language: $languageCode
             ➜ Partials: $logPartials
             ➜ Finals: $logFinals
@@ -229,28 +239,33 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
 
     private fun parseAndUpdate(spokenText: String) {
         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.Default) {
-            val chunks = parsingUseCase.parseSpeech(
-                spokenText,
-                sharedSpeciesViewModel.actieveAliasMap.value + sharedSpeciesViewModel.fallbackAliasMap.value
+            // Bouw gecombineerde alias-map (actief + fallback)
+            val aliasMap: Map<String, String> = buildMap {
+                putAll(sharedSpeciesViewModel.actieveAliasMap.value)
+                putAll(sharedSpeciesViewModel.fallbackAliasMap.value)
+            }
+
+            // Nieuwe UseCase-API: execute(...)
+            val result = parsingUseCase.execute(
+                transcript = spokenText,
+                aliasToSpeciesMap = aliasMap
             )
 
-            val validUpdates = mutableListOf<Pair<String, Int>>()
-            val pendingAdditions = mutableListOf<Pair<String, Int>>()
-            val logLines = mutableListOf<LogEntry>()
+            // Verzamel UI-updates
+            val validUpdates: MutableList<Pair<String, Int>> = mutableListOf()
+            val pendingAdditions: MutableList<Pair<String, Int>> = mutableListOf()
+            val logLines: MutableList<LogEntry> = mutableListOf()
 
             val selected = sharedSpeciesViewModel.selectedSpecies.value
             val allKnownSpecies = sharedSpeciesViewModel.speciesList
+
             val showParsedBlocks = sharedPrefsHelper.getBoolean(SettingsKeys.LOG_PARSED_BLOCKS, true)
             val showWarnings = sharedPrefsHelper.getBoolean(SettingsKeys.LOG_WARNINGS, true)
             val showErrors = sharedPrefsHelper.getBoolean(SettingsKeys.LOG_ERRORS, true)
 
-            // Maak unieke set binnen dit final-result (geen duplicates binnen één spraakinvoer)
-            val seenInThisUtterance = mutableSetOf<String>()
-
-            chunks.forEach { (canonicalName, amount) ->
-                val species = canonicalName.lowercase()
-                if (!seenInThisUtterance.add("$species:$amount")) return@forEach
-
+            if (result != null) {
+                val species = result.species.lowercase()
+                val amount = result.count
                 val nameFormatted = species.replaceFirstChar { it.uppercase() }
 
                 when {
@@ -259,11 +274,11 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
                         validUpdates.add(species to amount)
                     }
                     allKnownSpecies.contains(species) -> {
-                        // Niet geselecteerd: altijd zichtbaar als WARNING
+                        // Niet geselecteerd: toon waarschuwing en bied toevoegen aan
                         logLines.add(
                             LogEntry(
-                                "⚠️ $nameFormatted is niet geselecteerd",
-                                showInUi = showWarnings, // toggle bepaalt extra zichtbaarheid, maar adapter forceert WARNING altijd zichtbaar
+                                text = "⚠️ $nameFormatted is niet geselecteerd",
+                                showInUi = showWarnings, // adapter toont WARNING sowieso
                                 includeInExport = true,
                                 type = LogType.WARNING
                             )
@@ -273,7 +288,7 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
                     else -> {
                         logLines.add(
                             LogEntry(
-                                "❌ $nameFormatted niet herkend",
+                                text = "❌ $nameFormatted niet herkend",
                                 showInUi = showErrors,
                                 includeInExport = true,
                                 type = LogType.ERROR
@@ -281,15 +296,33 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
                         )
                     }
                 }
+            } else {
+                // Geen bruikbare parse
+                logLines.add(
+                    LogEntry(
+                        text = "❌ Geen betrouwbare soort gevonden",
+                        showInUi = showErrors,
+                        includeInExport = true,
+                        type = LogType.ERROR
+                    )
+                )
             }
 
             withContext(Dispatchers.Main) {
                 if (showParsedBlocks) {
-                    addLogLine(
-                        "🔍 Gevonden blokken: ${chunks.joinToString { "${it.first} → ${it.second}" }}",
-                        showInUi = true,
-                        type = LogType.PARSED_BLOCK
-                    )
+                    if (result != null) {
+                        addLogLine(
+                            " Gevonden: ${result.species} → ${result.count}",
+                            showInUi = true,
+                            type = LogType.PARSED_BLOCK
+                        )
+                    } else {
+                        addLogLine(
+                            " Geen parse-resultaat",
+                            showInUi = true,
+                            type = LogType.PARSED_BLOCK
+                        )
+                    }
                 }
 
                 logLines.forEach { addLogLine(it) }
@@ -335,7 +368,9 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
     }
 
     fun triggerSpeechRecognition() {
-        val languageCode = sharedPrefsHelper.getString(SettingsKeys.SPEECH_INPUT_LANGUAGE, "nl-NL") ?: "nl-NL"
-        speechHelper.startListening(languageCode)
+        // Je kan dit nog lezen voor debug/logging, maar SpeechRecognitionHelper gebruikt nl-NL standaard.
+        // We geven geen parameter meer mee (API is startListening()).
+        // val languageCode = sharedPrefsHelper.getString(SettingsKeys.SPEECH_INPUT_LANGUAGE, "nl-NL") ?: "nl-NL"
+        speechHelper.startListening()
     }
 }

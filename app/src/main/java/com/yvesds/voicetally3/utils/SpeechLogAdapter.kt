@@ -8,34 +8,61 @@ import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
 import com.yvesds.voicetally3.R
 
+/**
+ * Adapter voor het weergeven van spraaklogregels.
+ *
+ * Verbeteringen:
+ * - Sterke types voor RecyclerView.Adapter<LogViewHolder>
+ * - Stabiele IDs voor vloeiende recyclage (setHasStableIds + getItemId)
+ * - Vermijdt dubbele items (op basis van text + type)
+ * - Filtert standaard op showInUi of belangrijke types (TALLY_UPDATE, WARNING)
+ * - Export in chronologische volgorde
+ */
 class SpeechLogAdapter : RecyclerView.Adapter<SpeechLogAdapter.LogViewHolder>() {
 
-    private val logs = mutableListOf<LogEntry>()
+    private val logs: MutableList<LogEntry> = mutableListOf()
 
+    init {
+        // Stabiele IDs helpen tegen onnodig hertekenen/flikkeren
+        setHasStableIds(true)
+    }
+
+    /**
+     * Voeg een logregel toe. Wordt enkel getoond als:
+     * - entry.showInUi == true, of
+     * - het een belangrijk type is (TALLY_UPDATE, WARNING)
+     * Voorkomt duplicates met dezelfde (text + type).
+     */
     fun addLine(entry: LogEntry) {
         val mustShow = entry.type == LogType.TALLY_UPDATE || entry.type == LogType.WARNING
         val exists = logs.any { it.text == entry.text && it.type == entry.type }
-
         if ((entry.showInUi || mustShow) && !exists) {
             logs.add(0, entry)
             notifyItemInserted(0)
         }
     }
 
+    /**
+     * Vervang de volledige lijst. Toont enkel relevante regels.
+     * Nieuwe weergave zet het meest recente bovenaan.
+     */
     fun setLogs(newLogs: List<LogEntry>) {
         logs.clear()
         logs.addAll(
             newLogs
                 .filter { it.showInUi || it.type == LogType.TALLY_UPDATE || it.type == LogType.WARNING }
-                .reversed()
+                .reversed() // oudste eerst, zodat laatste bovenaan komt na add(0, ...)
         )
         notifyDataSetChanged()
     }
 
+    /**
+     * Exporteer alle logs die aangevinkt staan voor export, in chronologische volgorde.
+     */
     fun exportAllLogs(): String {
         return logs
             .filter { it.includeInExport }
-            .reversed()
+            .reversed() // export in volgorde van ontstaan
             .joinToString("\n") { it.text }
     }
 
@@ -50,6 +77,13 @@ class SpeechLogAdapter : RecyclerView.Adapter<SpeechLogAdapter.LogViewHolder>() 
     }
 
     override fun getItemCount(): Int = logs.size
+
+    override fun getItemId(position: Int): Long {
+        val entry = logs[position]
+        // Combineer text + type tot een stabiele (best effort) ID
+        val prime = 31L
+        return (prime * entry.text.hashCode() + entry.type.ordinal).toLong()
+    }
 
     class LogViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         private val logText: TextView = itemView.findViewById(R.id.textLog)

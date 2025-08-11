@@ -1,6 +1,7 @@
 package com.yvesds.voicetally3.di
 
 import android.content.Context
+import com.yvesds.voicetally3.data.AliasRepository
 import com.yvesds.voicetally3.data.CSVManager
 import com.yvesds.voicetally3.data.SharedPrefsHelper
 import com.yvesds.voicetally3.data.SpeciesCacheManager
@@ -11,9 +12,9 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import javax.inject.Singleton
-import com.yvesds.voicetally3.data.AliasRepository
-
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -42,21 +43,33 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideSpeciesCacheManager(
-        aliasRepository: AliasRepository,
-        sharedPrefsHelper: SharedPrefsHelper
-    ): SpeciesCacheManager = SpeciesCacheManager(aliasRepository, sharedPrefsHelper)
-
-    @Provides
-    @Singleton
-    fun provideSpeechParsingUseCase() = SpeechParsingUseCase()
-
-
-    @Provides
-    @Singleton
     fun provideAliasRepository(
         csvManager: CSVManager,
         storageManager: StorageManager
     ): AliasRepository = AliasRepository(csvManager, storageManager)
 
+    @Provides
+    @Singleton
+    fun provideSpeciesCacheManager(
+        aliasRepository: AliasRepository,
+        sharedPrefsHelper: SharedPrefsHelper
+    ): SpeciesCacheManager = SpeciesCacheManager(aliasRepository, sharedPrefsHelper)
+
+    /**
+     * Dispatcher voor parsing-werk (CPU-bound).
+     * We gebruiken Default zodat UI nooit geblokkeerd raakt.
+     */
+    @Provides
+    @Singleton
+    fun provideParsingDispatcher(): CoroutineDispatcher = Dispatchers.Default
+
+    /**
+     * UseCase zonder vaste alias-map in de constructor.
+     * De alias-map wordt per aanroep (execute) doorgegeven.
+     */
+    @Provides
+    @Singleton
+    fun provideSpeechParsingUseCase(
+        dispatcher: CoroutineDispatcher
+    ): SpeechParsingUseCase = SpeechParsingUseCase(dispatcher)
 }

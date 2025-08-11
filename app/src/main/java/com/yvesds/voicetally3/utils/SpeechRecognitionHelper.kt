@@ -9,121 +9,117 @@ import android.speech.SpeechRecognizer
 import android.util.Log
 
 /**
- * ✅ SpeechRecognitionHelper
- * - Encapsuleert Google SpeechRecognizer
- * - Lambda callbacks voor final/partial/error
- * - Geluidstriggers bij relevante events
+ * Hulpklaase voor het werken met de Android SpeechRecognizer API.
+ *
+ * - Vereenvoudigt instellen en starten/stoppen van spraakherkenning.
+ * - Verzorgt lifecycle-beheer en callbacks naar de UI.
  */
 class SpeechRecognitionHelper(
-    private val context: Context,
-    private val soundPlayer: SoundPlayer,
+    context: Context,
     private val onFinalResult: (String) -> Unit,
     private val onPartialResult: (String) -> Unit,
     private val onError: (String) -> Unit
 ) {
 
-    private var speechRecognizer: SpeechRecognizer? = null
+    private val speechRecognizer: SpeechRecognizer =
+        SpeechRecognizer.createSpeechRecognizer(context.applicationContext)
 
-    private val listener = object : RecognitionListener {
+    private val recognitionListener = object : RecognitionListener {
         override fun onReadyForSpeech(params: Bundle?) {
-            //Log.d(TAG, "🔊 Ready for speech")
+            Log.d(TAG, "Ready for speech")
         }
 
         override fun onBeginningOfSpeech() {
-            //Log.d(TAG, "🎤 Start spraak")
-            soundPlayer.play("start")
+            Log.d(TAG, "Speech started")
         }
 
-        override fun onRmsChanged(rmsdB: Float) {}
+        override fun onRmsChanged(rmsdB: Float) {
+            // Kan gebruikt worden voor VU-meter visualisatie
+        }
 
-        override fun onBufferReceived(buffer: ByteArray?) {}
+        override fun onBufferReceived(buffer: ByteArray?) {
+            // Niet gebruikt
+        }
 
         override fun onEndOfSpeech() {
-            //Log.d(TAG, "🔇 Einde spraak")
-            soundPlayer.play("stop")
+            Log.d(TAG, "Speech ended")
         }
 
-        override fun onError(error: Int) {
-            val explanation = getSpeechErrorExplanation(error)
-            //Log.e(TAG, "❌ Fout tijdens spraak: $explanation")
+        override fun onError(errorCode: Int) {
+            val explanation = getSpeechErrorExplanation(errorCode)
+            Log.w(TAG, "Speech recognition error: $explanation")
             onError(explanation)
-            soundPlayer.play("error")
         }
 
         override fun onResults(results: Bundle?) {
-            val data = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-            val spoken = data?.joinToString(" ")?.trim().orEmpty()
-            //Log.d(TAG, "✅ Definitief resultaat: $spoken")
-            onFinalResult(spoken)
+            val matches = results
+                ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                .orEmpty()
+            if (matches.isNotEmpty()) {
+                onFinalResult(matches.first())
+            }
         }
 
         override fun onPartialResults(partialResults: Bundle?) {
-            val data = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-            val partial = data?.joinToString(" ")?.trim().orEmpty()
-            if (partial.isNotBlank()) {
-                Log.d(TAG, "🟡 Tussentijds: $partial")
-                onPartialResult(partial)
+            val partials = partialResults
+                ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                .orEmpty()
+            if (partials.isNotEmpty()) {
+                onPartialResult(partials.first())
             }
         }
 
-        override fun onEvent(eventType: Int, params: Bundle?) {}
+        override fun onEvent(eventType: Int, params: Bundle?) {
+            // Niet gebruikt
+        }
     }
 
     init {
-        initRecognizer()
+        speechRecognizer.setRecognitionListener(recognitionListener)
     }
 
-    private fun initRecognizer() {
-        if (SpeechRecognizer.isRecognitionAvailable(context)) {
-            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
-                setRecognitionListener(listener)
-            }
-            //Log.d(TAG, "✅ SpeechRecognizer geïnitialiseerd")
-        } else {
-            val msg = "Spraakherkenning niet beschikbaar op dit toestel"
-            Log.e(TAG, "❌ $msg")
-            soundPlayer.play("error")
-            onError(msg)
-        }
-    }
-
-    fun startListening(language: String = "nl-NL") {
+    /**
+     * Start spraakherkenning met Nederlands als taal.
+     */
+    fun startListening() {
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, language)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
-
-            // ⏱️ Snellere detectie via silence thresholds
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 250L)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 250L)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "nl-NL")
         }
-        speechRecognizer?.startListening(intent)
-        //Log.d(TAG, "🎙️ Start luisteren met taal: $language")
+        speechRecognizer.startListening(intent)
     }
 
+    /**
+     * Stop huidige spraakherkenningssessie.
+     */
     fun stopListening() {
-        speechRecognizer?.stopListening()
-        //Log.d(TAG, "⏹️ Stop luisteren")
+        speechRecognizer.stopListening()
     }
 
+    /**
+     * Ruim resources op. Aanroepen bij onDestroy van je Activity/Fragment.
+     */
     fun destroy() {
-        speechRecognizer?.destroy()
-        speechRecognizer = null
-        //Log.d(TAG, "🗑️ SpeechRecognizer opgeruimd")
+        speechRecognizer.destroy()
     }
 
-    private fun getSpeechErrorExplanation(errorCode: Int): String = when (errorCode) {
-        SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Netwerk time-out"
-        SpeechRecognizer.ERROR_NETWORK -> "Netwerkprobleem"
-        SpeechRecognizer.ERROR_AUDIO -> "Audio-opname probleem"
-        SpeechRecognizer.ERROR_SERVER -> "Serverfout"
-        SpeechRecognizer.ERROR_CLIENT -> "Clientfout (trigger mogelijk te lang)"
-        SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Geen spraak binnen timeout"
-        SpeechRecognizer.ERROR_NO_MATCH -> "Geen match"
-        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Recognizer bezet"
-        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Geen toestemming voor microfoon"
-        else -> "Onbekende foutcode ($errorCode)"
+    /**
+     * Vertaal foutcodes naar leesbare uitleg voor logging/gebruikersfeedback.
+     */
+    fun getSpeechErrorExplanation(errorCode: Int): String {
+        return when (errorCode) {
+            SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "ERROR_NETWORK_TIMEOUT [Netwerk time-out]"
+            SpeechRecognizer.ERROR_NETWORK -> "ERROR_NETWORK [Netwerk probleem]"
+            SpeechRecognizer.ERROR_AUDIO -> "ERROR_AUDIO [Audio opname probleem]"
+            SpeechRecognizer.ERROR_SERVER -> "ERROR_SERVER [Server fout]"
+            SpeechRecognizer.ERROR_CLIENT -> "ERROR_CLIENT [Client fout]"
+            SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "ERROR_SPEECH_TIMEOUT [Geen spraak binnen timeout]"
+            SpeechRecognizer.ERROR_NO_MATCH -> "ERROR_NO_MATCH [Geen match]"
+            SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "ERROR_RECOGNIZER_BUSY [Recognizer busy]"
+            SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "ERROR_INSUFFICIENT_PERMISSIONS [Geen permissies]"
+            else -> "Onbekende foutcode"
+        }
     }
 
     companion object {

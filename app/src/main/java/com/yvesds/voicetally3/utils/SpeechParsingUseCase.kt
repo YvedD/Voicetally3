@@ -1,39 +1,43 @@
 package com.yvesds.voicetally3.utils
 
-import android.util.Log
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
-import javax.inject.Inject
-import javax.inject.Singleton
 
 /**
- * ✅ SpeechParsingUseCase (geoptimaliseerd v2)
- * - Verwerkt gesproken tekst naar (soort, aantal) paren
- * - Gebruikt directe alias → soort mapping (sneller)
- * - Ondersteunt fallback matching
+ * Use case: verwerk een transcript (final of partial) en bepaal of er een telling uitgevoerd moet worden.
+ *
+ * - Maakt gebruik van SpeechParser voor aliasherkenning.
+ * - Draait standaard op een achtergrondthread (dispatcher).
+ * - Alias-map wordt PER AANROEP doorgegeven (past bij dynamische gebruikersselectie).
+ * - Resultaat bevat soortnaam en aantal, of null als er geen match is.
  */
-@Singleton
-class SpeechParsingUseCase @Inject constructor() {
+class SpeechParsingUseCase(
+    private val dispatcher: CoroutineDispatcher
+) {
 
-    suspend fun parseSpeech(
-        spokenText: String,
-        aliasToSpeciesMap: Map<String, String>
-    ): List<Pair<String, Int>> = withContext(Dispatchers.Default) {
+    data class Result(
+        val species: String,
+        val count: Int
+    )
 
-        if (spokenText.isBlank() || aliasToSpeciesMap.isEmpty()) {
-            Log.w(TAG, "⚠️ Lege invoer of lege mapping")
-            return@withContext emptyList()
-        }
-
-        Log.d(TAG, "🔍 Parsing met ${aliasToSpeciesMap.size} aliassen")
-
-        return@withContext SpeechParser.extractSpeciesChunks(
-            spokenText = spokenText.lowercase().trim(),
-            aliasToSpeciesMap = aliasToSpeciesMap
+    /**
+     * Parse een transcript op een achtergrondthread.
+     *
+     * @param transcript     Het door de spraakherkenner herkende stuk tekst.
+     * @param aliasToSpeciesMap  alias (lowercase) -> canonical soortnaam (lowercase)
+     * @param minFuzzyScore  Minimum Jaro-Winkler score voor fuzzy alias matching.
+     * @return Result of null als er geen betrouwbare match is.
+     */
+    suspend fun execute(
+        transcript: String,
+        aliasToSpeciesMap: Map<String, String>,
+        minFuzzyScore: Double = 0.90
+    ): Result? = withContext(dispatcher) {
+        val parseResult = SpeechParser.parse(
+            transcript = transcript,
+            aliasToSpeciesMap = aliasToSpeciesMap,
+            minFuzzyScore = minFuzzyScore
         )
-    }
-
-    companion object {
-        private const val TAG = "SpeechParsingUseCase"
+        parseResult?.let { Result(it.species, it.count) }
     }
 }
