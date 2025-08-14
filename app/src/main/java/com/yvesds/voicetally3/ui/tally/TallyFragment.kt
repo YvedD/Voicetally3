@@ -48,7 +48,7 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
     @Inject lateinit var sharedPrefsHelper: SharedPrefsHelper
     @Inject lateinit var soundPlayer: SoundPlayer
 
-    /** Onthoud het laatst verwerkte FINAL-resultaat zodat we duplicates kunnen negeren. */
+    /** Laatste FINAL die verwerkt werd, om duplicates te negeren. */
     private var lastFinalProcessed: String? = null
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
@@ -89,7 +89,6 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
     private fun observeTallyMap() {
         viewLifecycleOwner.lifecycleScope.launch {
             sharedSpeciesViewModel.tallyMap.collectLatest { map ->
-                // Sorteer alfabetisch op soortnaam
                 val items = map.entries.sortedBy { it.key }
                 tallyAdapter.submitList(items)
             }
@@ -112,7 +111,6 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
             context = requireContext(),
             onFinalResult = { spokenText ->
                 val normalized = spokenText.lowercase().trim()
-                // Simpele duplicate-guard i.p.v. parsingBuffer.shouldProcessFinal(...)
                 if (normalized == lastFinalProcessed) {
                     val showWarnings = sharedPrefsHelper.getBoolean(SettingsKeys.LOG_WARNINGS, true)
                     addLogLine(
@@ -136,7 +134,7 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
                         type = LogType.FINAL
                     )
                 )
-                parseAndUpdate(normalized)
+                parseAndUpdateMultiple(normalized)
             },
             onPartialResult = { partial ->
                 parsingBuffer.updatePartial(partial)
@@ -183,8 +181,9 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
             }
     }
 
-    // Log toevoegen (altijd via ViewModel zodat state behouden blijft)
+    /** Voeg log toe via ViewModel én update RecyclerView — ALTIJD op main thread aanroepen. */
     private fun addLogLine(entry: LogEntry) {
+        // We zorgen ervoor dat dit altijd op main wordt aangeroepen.
         sharedSpeciesViewModel.addSpeechLog(entry)
         if (entry.showInUi || entry.type == LogType.TALLY_UPDATE || entry.type == LogType.WARNING) {
             logAdapter.addLine(entry)
@@ -192,12 +191,7 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
         }
     }
 
-    // Convenience overload
-    private fun addLogLine(
-        text: String,
-        showInUi: Boolean = true,
-        type: LogType = LogType.INFO
-    ) {
+    private fun addLogLine(text: String, showInUi: Boolean = true, type: LogType = LogType.INFO) {
         addLogLine(
             LogEntry(
                 text = text,
@@ -237,102 +231,117 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
         ResultsDialogFragment().show(parentFragmentManager, "ResultsDialog")
     }
 
-    private fun parseAndUpdate(spokenText: String) {
-        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.Default) {
-            // Bouw gecombineerde alias-map (actief + fallback)
+    /** Verwerk meerdere (soort, aantal)-paren in één final uiting. */
+    private fun parseAndUpdateMultiple(spokenText: String) {
+        viewLifecycleOwner.lifecycleScope.launch {
+            // 1) Bouw alias-map op main (reads uit StateFlow)
             val aliasMap: Map<String, String> = buildMap {
                 putAll(sharedSpeciesViewModel.actieveAliasMap.value)
                 putAll(sharedSpeciesViewModel.fallbackAliasMap.value)
             }
 
-            // Nieuwe UseCase-API: execute(...)
-            val result = parsingUseCase.execute(
-                transcript = spokenText,
-                aliasToSpeciesMap = aliasMap
-            )
+            // 2) Parse in background
+            val results = withContext(Dispatchers.Default) {
+                parsingUseCase.executeAll(
+                    transcript = spokenText,
+                    aliasToSpeciesMap = aliasMap
+                )
+            }
 
-            // Verzamel UI-updates
-            val validUpdates: MutableList<Pair<String, Int>> = mutableListOf()
-            val pendingAdditions: MutableList<Pair<String, Int>> = mutableListOf()
-            val logLines: MutableList<LogEntry> = mutableListOf()
+            // 3) Bereid UI-gegevens voor in background (geen UI calls!)
+            val prepared = withContext(Dispatchers.Default) {
+                val selected = sharedSpeciesViewModel.selectedSpecies.value
+                val allKnownSpecies = sharedSpeciesViewModel.speciesList
 
-            val selected = sharedSpeciesViewModel.selectedSpecies.value
-            val allKnownSpecies = sharedSpeciesViewModel.speciesList
+                val showParsedBlocks = sharedPrefsHelper.getBoolean(SettingsKeys.LOG_PARSED_BLOCKS, true)
+                val showWarnings = sharedPrefsHelper.getBoolean(SettingsKeys.LOG_WARNINGS, true)
+                val showErrors = sharedPrefsHelper.getBoolean(SettingsKeys.LOG_ERRORS, true)
 
-            val showParsedBlocks = sharedPrefsHelper.getBoolean(SettingsKeys.LOG_PARSED_BLOCKS, true)
-            val showWarnings = sharedPrefsHelper.getBoolean(SettingsKeys.LOG_WARNINGS, true)
-            val showErrors = sharedPrefsHelper.getBoolean(SettingsKeys.LOG_ERRORS, true)
+                data class Pack(
+                    val parsedBlockLines: List<LogEntry>,
+                    val logLines: List<LogEntry>,
+                    val validUpdates: List<Pair<String, Int>>,
+                    val pendingAdditions: List<Pair<String, Int>>
+                )
 
-            if (result != null) {
-                val species = result.species.lowercase()
-                val amount = result.count
-                val nameFormatted = species.replaceFirstChar { it.uppercase() }
-
-                when {
-                    selected.contains(species) -> {
-                        logLines.add(LogEntry("✅ $nameFormatted ➜ +$amount", type = LogType.TALLY_UPDATE))
-                        validUpdates.add(species to amount)
-                    }
-                    allKnownSpecies.contains(species) -> {
-                        // Niet geselecteerd: toon waarschuwing en bied toevoegen aan
-                        logLines.add(
-                            LogEntry(
-                                text = "⚠️ $nameFormatted is niet geselecteerd",
-                                showInUi = showWarnings, // adapter toont WARNING sowieso
-                                includeInExport = true,
-                                type = LogType.WARNING
-                            )
-                        )
-                        pendingAdditions.add(species to amount)
-                    }
-                    else -> {
-                        logLines.add(
-                            LogEntry(
-                                text = "❌ $nameFormatted niet herkend",
-                                showInUi = showErrors,
-                                includeInExport = true,
-                                type = LogType.ERROR
-                            )
-                        )
-                    }
-                }
-            } else {
-                // Geen bruikbare parse
-                logLines.add(
-                    LogEntry(
-                        text = "❌ Geen betrouwbare soort gevonden",
+                if (results.isEmpty()) {
+                    val err = LogEntry(
+                        text = "❌ Geen parse-resultaat",
                         showInUi = showErrors,
                         includeInExport = true,
                         type = LogType.ERROR
                     )
-                )
+                    Pack(parsedBlockLines = emptyList(), logLines = listOf(err), validUpdates = emptyList(), pendingAdditions = emptyList())
+                } else {
+                    val parsedBlockLines = if (showParsedBlocks) {
+                        results.map { r ->
+                            LogEntry(
+                                text = " Gevonden: ${r.species} → ${r.count}",
+                                showInUi = true,
+                                includeInExport = true,
+                                type = LogType.PARSED_BLOCK
+                            )
+                        }
+                    } else emptyList()
+
+                    val logLines = mutableListOf<LogEntry>()
+                    val validUpdates = mutableListOf<Pair<String, Int>>()
+                    val pendingAdditions = mutableListOf<Pair<String, Int>>()
+
+                    results.forEach { r ->
+                        val species = r.species.lowercase()
+                        val amount = r.count
+                        val nameFormatted = species.replaceFirstChar { it.uppercase() }
+
+                        when {
+                            selected.contains(species) -> {
+                                logLines.add(LogEntry("✅ $nameFormatted ➜ +$amount", type = LogType.TALLY_UPDATE))
+                                validUpdates.add(species to amount)
+                            }
+                            allKnownSpecies.contains(species) -> {
+                                logLines.add(
+                                    LogEntry(
+                                        text = "⚠️ $nameFormatted is niet geselecteerd",
+                                        showInUi = showWarnings,
+                                        includeInExport = true,
+                                        type = LogType.WARNING
+                                    )
+                                )
+                                pendingAdditions.add(species to amount)
+                            }
+                            else -> {
+                                logLines.add(
+                                    LogEntry(
+                                        text = "❌ $nameFormatted niet herkend",
+                                        showInUi = showErrors,
+                                        includeInExport = true,
+                                        type = LogType.ERROR
+                                    )
+                                )
+                            }
+                        }
+                    }
+
+                    Pack(
+                        parsedBlockLines = parsedBlockLines,
+                        logLines = logLines,
+                        validUpdates = validUpdates,
+                        pendingAdditions = pendingAdditions
+                    )
+                }
             }
 
+            // 4) UITSLUITEND OP MAIN: logs toevoegen, tallies bijwerken, geluiden, dialogen
             withContext(Dispatchers.Main) {
-                if (showParsedBlocks) {
-                    if (result != null) {
-                        addLogLine(
-                            " Gevonden: ${result.species} → ${result.count}",
-                            showInUi = true,
-                            type = LogType.PARSED_BLOCK
-                        )
-                    } else {
-                        addLogLine(
-                            " Geen parse-resultaat",
-                            showInUi = true,
-                            type = LogType.PARSED_BLOCK
-                        )
-                    }
-                }
+                prepared.parsedBlockLines.forEach { addLogLine(it) }
+                prepared.logLines.forEach { addLogLine(it) }
 
-                logLines.forEach { addLogLine(it) }
-
-                if (validUpdates.isNotEmpty()) {
-                    sharedSpeciesViewModel.updateTallies(validUpdates)
+                if (prepared.validUpdates.isNotEmpty()) {
+                    sharedSpeciesViewModel.updateTallies(prepared.validUpdates)
                     soundPlayer.play("success")
                 }
 
-                pendingAdditions.forEach { (species, amount) ->
+                prepared.pendingAdditions.forEach { (species, amount) ->
                     AlertDialog.Builder(requireContext())
                         .setTitle("Soort niet geselecteerd")
                         .setMessage("Wil je '${species.replaceFirstChar { it.uppercase() }}' toevoegen aan de tellingen?")
@@ -346,7 +355,7 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
                         .show()
                 }
 
-                if (validUpdates.isEmpty() && pendingAdditions.isEmpty()) {
+                if (prepared.validUpdates.isEmpty() && prepared.pendingAdditions.isEmpty()) {
                     soundPlayer.play("error")
                 }
             }
@@ -368,9 +377,6 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
     }
 
     fun triggerSpeechRecognition() {
-        // Je kan dit nog lezen voor debug/logging, maar SpeechRecognitionHelper gebruikt nl-NL standaard.
-        // We geven geen parameter meer mee (API is startListening()).
-        // val languageCode = sharedPrefsHelper.getString(SettingsKeys.SPEECH_INPUT_LANGUAGE, "nl-NL") ?: "nl-NL"
         speechHelper.startListening()
     }
 }

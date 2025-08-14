@@ -2,16 +2,33 @@ package com.yvesds.voicetally3.ui.tally
 
 import android.app.Dialog
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.fragment.app.DialogFragment
+import androidx.fragment.app.activityViewModels
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.yvesds.voicetally3.databinding.DialogSpeechListeningBinding
-import com.yvesds.voicetally3.utils.LogEntry
+import com.yvesds.voicetally3.ui.shared.SharedSpeciesViewModel
 import com.yvesds.voicetally3.utils.SpeechLogAdapter
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 
+/**
+ * Toont live de spraaklogs in een lijst terwijl de herkenning bezig is.
+ *
+ * Verbeteringen t.o.v. de oorspronkelijke versie:
+ * - Geen hardcoded voorbeeldlogs meer; we gebruiken de gedeelde ViewModel (speechLogs).
+ * - Lifecycle-aware verzamelen van logs (collectLatest in viewLifecycleOwner.lifecycleScope).
+ * - Auto-scroll naar boven bij nieuwe regels.
+ * - Stabiele RecyclerView-config (fixed size + LinearLayoutManager).
+ */
 class SpeechListeningDialogFragment : DialogFragment() {
 
     private var _binding: DialogSpeechListeningBinding? = null
     private val binding get() = _binding!!
+
+    private val sharedSpeciesViewModel: SharedSpeciesViewModel by activityViewModels()
+
     private lateinit var logAdapter: SpeechLogAdapter
 
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
@@ -19,24 +36,34 @@ class SpeechListeningDialogFragment : DialogFragment() {
         _binding = DialogSpeechListeningBinding.inflate(layoutInflater)
         dialog.setContentView(binding.root)
 
-        setupRecyclerView()
-
-        // ✅ Voorbeeld LogEntry lijst
-        val myLogEntries = listOf(
-            LogEntry("log1"),
-            LogEntry("log2"),
-            LogEntry("log3")
+        // Zorg dat het dialoog mooi breed/hoog is (indien layout dit toelaat)
+        dialog.window?.setLayout(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.WRAP_CONTENT
         )
 
-        logAdapter.setLogs(myLogEntries)
+        setupRecyclerView()
+        observeLogs()
 
         return dialog
     }
 
     private fun setupRecyclerView() {
         logAdapter = SpeechLogAdapter()
-        binding.recyclerViewLogs.layoutManager = LinearLayoutManager(requireContext())
-        binding.recyclerViewLogs.adapter = logAdapter
+        binding.recyclerViewLogs.apply {
+            setHasFixedSize(true)
+            layoutManager = LinearLayoutManager(requireContext())
+            adapter = logAdapter
+        }
+    }
+
+    private fun observeLogs() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            sharedSpeciesViewModel.speechLogs.collectLatest { logs ->
+                logAdapter.setLogs(logs)
+                binding.recyclerViewLogs.scrollToPosition(0)
+            }
+        }
     }
 
     override fun onDestroyView() {
