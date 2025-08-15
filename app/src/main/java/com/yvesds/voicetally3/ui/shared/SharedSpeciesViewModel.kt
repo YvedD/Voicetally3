@@ -8,6 +8,10 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -20,9 +24,9 @@ import javax.inject.Named
  *   1) actieveAliasMap = alias -> soort (enkel voor geselecteerde soorten)
  *   2) fallbackAliasMap = alias -> soort (alle soorten, voor herkenning buiten selectie)
  *
- * Let op:
- * - Alle I/O (CSV/alias-laden) gebeurt via AliasRepository **suspend** functies op IO.
- * - UI-updates gebeuren op main via StateFlow.
+ * Performance:
+ * - Atomic updates met StateFlow.update voor minimale allocaties.
+ * - (Optioneel) tallyEntriesSorted: gesorteerde entries in de VM i.p.v. in de UI.
  */
 @HiltViewModel
 class SharedSpeciesViewModel @Inject constructor(
@@ -30,12 +34,22 @@ class SharedSpeciesViewModel @Inject constructor(
     @Named("IO") private val ioDispatcher: CoroutineDispatcher
 ) : ViewModel() {
 
+    private val maxLogBuffer = 500
+    private fun normalize(name: String) = name.trim().lowercase()
+
     // ==== UI state ====
     private val _selectedSpecies = MutableStateFlow<Set<String>>(emptySet())
     val selectedSpecies: StateFlow<Set<String>> get() = _selectedSpecies
 
     private val _tallyMap = MutableStateFlow<Map<String, Int>>(emptyMap())
     val tallyMap: StateFlow<Map<String, Int>> get() = _tallyMap
+
+    // Optioneel te gebruiken in UI (sneller: geen sort per update in Fragment nodig).
+    // Backwards-compatible: tallyMap blijft bestaan.
+    val tallyEntriesSorted: StateFlow<List<Map.Entry<String, Int>>> =
+        _tallyMap
+            .map { it.entries.sortedBy { e -> e.key }.toList() }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _sessionStart = MutableStateFlow<Long?>(null)
     val sessionStart: StateFlow<Long?> get() = _sessionStart
@@ -70,11 +84,13 @@ class SharedSpeciesViewModel @Inject constructor(
         viewModelScope.launch {
             // Laad alle soorten (IO)
             val allSpecies = withContext(ioDispatcher) { aliasRepository.getAllSpeciesSuspend() }
-            speciesList = allSpecies
+            // Normaliseer namen 1x (lowercase) voor consistente lookups
+            speciesList = allSpecies.map { normalize(it) }
 
             // Bouw fallback aliasmap (IO)
             val map = withContext(ioDispatcher) { aliasRepository.buildFallbackAliasToSpeciesMapSuspend() }
-            _fallbackAliasMap.value = map
+            // Zorg dat values ook genormaliseerd zijn
+            _fallbackAliasMap.value = map.mapValues { (_, v) -> normalize(v) }
         }
     }
 
@@ -91,17 +107,21 @@ class SharedSpeciesViewModel @Inject constructor(
      * Bouwt tegelijk de actieve aliasmap (IO).
      */
     fun setSelectedSpecies(species: Set<String>) {
-        // Behoud bestaande teller-waarden waar mogelijk
-        val normalizedTally = _tallyMap.value.mapKeys { it.key.lowercase() }
-        val updated = species.associateWith { normalizedTally[it.lowercase()] ?: 0 }
+        // Normaliseer selectie
+        val normalizedSel = species.map { normalize(it) }.toSet()
 
-        _selectedSpecies.value = species
+        // Behoud bestaande teller-waarden waar mogelijk
+        val normalizedTally = _tallyMap.value // keys zijn al normalized in onze updates
+        val updated: Map<String, Int> = normalizedSel.associateWith { normalizedTally[it] ?: 0 }
+
+        _selectedSpecies.value = normalizedSel
         _tallyMap.value = updated
 
         // Actieve aliasmap voor enkel de geselecteerde soorten
         viewModelScope.launch(ioDispatcher) {
-            val aliasMap = aliasRepository.buildAliasToSpeciesMapSuspend(species)
-            _actieveAliasMap.value = aliasMap
+            val aliasMap = aliasRepository.buildAliasToSpeciesMapSuspend(normalizedSel)
+            // Map values normaliseren
+            _actieveAliasMap.value = aliasMap.mapValues { (_, v) -> normalize(v) }
         }
     }
 
@@ -110,52 +130,93 @@ class SharedSpeciesViewModel @Inject constructor(
      * Bouwt de actieve aliasmap opnieuw op.
      */
     fun addSpeciesToSelection(species: String, amount: Int) {
-        val current = _selectedSpecies.value.toMutableSet()
-        val added = current.add(species)
-        if (added) {
-            _selectedSpecies.value = current
-            // Herbouw aliasmap op IO
-            viewModelScope.launch(ioDispatcher) {
-                val aliasMap = aliasRepository.buildAliasToSpeciesMapSuspend(current)
-                _actieveAliasMap.value = aliasMap
+        val key = normalize(species)
+
+        var added = false
+        _selectedSpecies.update { current ->
+            if (current.contains(key)) {
+                current
+            } else {
+                added = true
+                current + key
             }
         }
-        // Tally bijwerken
-        val newTally = _tallyMap.value.toMutableMap()
-        newTally[species] = (newTally[species] ?: 0) + amount
-        _tallyMap.value = newTally
+
+        // Herbouw aliasmap alleen als de set effectief groeide
+        if (added) {
+            viewModelScope.launch(ioDispatcher) {
+                val aliasMap = aliasRepository.buildAliasToSpeciesMapSuspend(_selectedSpecies.value)
+                _actieveAliasMap.value = aliasMap.mapValues { (_, v) -> normalize(v) }
+            }
+        }
+
+        // Tally bijwerken (atomic)
+        _tallyMap.update { current ->
+            val next = current.toMutableMap()
+            next[key] = (next[key] ?: 0) + amount
+            next
+        }
     }
 
-    fun increment(species: String) = updateTally(species) { it + 1 }
+    fun increment(species: String) = bump(species, +1)
 
-    fun decrement(species: String) = updateTally(species) { (it - 1).coerceAtLeast(0) }
+    fun decrement(species: String) = _tallyMap.update { current ->
+        val key = normalize(species)
+        val cur = current[key] ?: 0
+        if (cur == 0) return@update current // no-op
+        val next = current.toMutableMap()
+        next[key] = (cur - 1).coerceAtLeast(0)
+        next
+    }
 
-    fun reset(species: String) = updateTally(species) { 0 }
+    fun reset(species: String) = _tallyMap.update { current ->
+        val key = normalize(species)
+        if (!current.containsKey(key)) return@update current // no-op
+        val next = current.toMutableMap()
+        next[key] = 0
+        next
+    }
 
     fun resetAll() {
-        _tallyMap.value = _tallyMap.value.mapValues { 0 }
+        _tallyMap.update { it.mapValues { 0 } }
         _sessionStart.value = System.currentTimeMillis()
         _speechLogs.value = emptyList()
     }
 
+    /**
+     * Batch-updates in één atomic emit (sneller bij meerdere wijzigingen).
+     */
     fun updateTallies(updates: List<Pair<String, Int>>) {
-        val current = _tallyMap.value.toMutableMap()
-        updates.forEach { (species, amount) ->
-            val prev = current[species] ?: 0
-            current[species] = prev + amount
+        if (updates.isEmpty()) return
+        _tallyMap.update { current ->
+            val next = current.toMutableMap()
+            updates.forEach { (species, amount) ->
+                val key = normalize(species)
+                val prev = next[key] ?: 0
+                next[key] = prev + amount
+            }
+            next
         }
-        _tallyMap.value = current
     }
 
-    private fun updateTally(species: String, op: (Int) -> Int) {
-        val current = _tallyMap.value.toMutableMap()
-        current[species] = op(current[species] ?: 0)
-        _tallyMap.value = current
+    private fun bump(species: String, delta: Int) {
+        if (delta == 0) return
+        _tallyMap.update { current ->
+            val key = normalize(species)
+            val prev = current[key] ?: 0
+            val newVal = (prev + delta).coerceAtLeast(0)
+            if (newVal == prev) return@update current // no-op
+            val next = current.toMutableMap()
+            next[key] = newVal
+            next
+        }
     }
 
     fun addSpeechLog(entry: LogEntry) {
-        if (entry.showInUi) {
-            _speechLogs.value = _speechLogs.value + entry
+        if (!entry.showInUi) return
+        _speechLogs.update { cur ->
+            val appended = cur + entry
+            if (appended.size <= maxLogBuffer) appended else appended.takeLast(maxLogBuffer)
         }
     }
 
@@ -169,7 +230,7 @@ class SharedSpeciesViewModel @Inject constructor(
      * Vind soort bij alias; doorzoekt eerst actieve aliasmap, dan fallback.
      */
     fun findSpeciesForAlias(aliasInput: String): String? {
-        val normalized = aliasInput.trim().lowercase()
+        val normalized = normalize(aliasInput)
         return _actieveAliasMap.value[normalized] ?: _fallbackAliasMap.value[normalized]
     }
 }

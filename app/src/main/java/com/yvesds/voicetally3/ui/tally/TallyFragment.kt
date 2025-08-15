@@ -118,9 +118,8 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
 
     private fun observeTallyMap() {
         viewLifecycleOwner.lifecycleScope.launch {
-            sharedSpeciesViewModel.tallyMap.collectLatest { map ->
-                val items: List<Map.Entry<String, Int>> =
-                    map.entries.sortedBy { it.key }.toList()
+            // ✅ rechtstreeks de al-gesorteerde entries uit de VM gebruiken
+            sharedSpeciesViewModel.tallyEntriesSorted.collectLatest { items ->
                 tallyAdapter.submitList(items)
             }
         }

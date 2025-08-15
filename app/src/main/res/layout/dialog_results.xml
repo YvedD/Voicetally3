@@ -1,87 +1,91 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/scrollViewResults"
+<!--
+ Dialooglayout:
+ - Titel
+ - MapView in vaste hoogte (volwaardige gestures)
+ - Resultaten-tekst in een eigen ScrollView met vaste hoogte
+ - Actieknoppen onderaan
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/resultsDialogRoot"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:layout_marginBottom="30dp"
+    android:background="@android:color/black"
+    android:orientation="vertical"
+    android:padding="12dp">
 
-    <LinearLayout
-        android:id="@+id/layoutResultsDialog"
+    <!-- Kop -->
+    <TextView
+        android:id="@+id/txtHeader"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="16dp">
+        android:paddingBottom="8dp"
+        android:text="Resultaten"
+        android:textColor="@android:color/white"
+        android:textSize="18sp"
+        android:textStyle="bold" />
 
-        <TextView
-            android:id="@+id/txtResults"
-            style="@style/BorderCardStyle"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:background="@color/material_dynamic_neutral70"
-            android:text="Resultaten"
-            android:textAppearance="?attr/textAppearanceBody1"
-            android:textColor="@android:color/black" />
+    <!-- Kaart (vaste hoogte) -->
+    <FrameLayout
+        android:id="@+id/mapHolder"
+        android:layout_width="match_parent"
+        android:layout_height="200dp"
+        android:layout_marginBottom="8dp">
 
         <org.osmdroid.views.MapView
             android:id="@+id/mapViewResults"
             android:layout_width="match_parent"
-            android:layout_height="400dp"
-            android:layout_marginTop="10dp" />
+            android:layout_height="match_parent" />
+    </FrameLayout>
 
-        <EditText
-            android:id="@+id/editTextText"
-            style="@style/BorderCardStyle"
+    <!-- Resultaten-tekst in eigen scrollgebied (vaste hoogte) -->
+    <ScrollView
+        android:id="@+id/resultsScroll"
+        android:layout_width="match_parent"
+        android:layout_height="240dp"
+        android:layout_marginBottom="8dp"
+        android:fadeScrollbars="false"
+        android:fillViewport="true">
+
+        <TextView
+            android:id="@+id/txtResults"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginLeft="12dp"
-            android:layout_marginTop="4dp"
-            android:layout_marginEnd="12dp"
-            android:ems="10"
-            android:inputType="textMultiLine"
-            android:singleLine="false"
-            android:text="je kan in/uitzoomen op de afbeelding zelf.\n Er word automatisch een screenshot bewaard"
-            android:textAlignment="center"
+            android:lineSpacingExtra="2dp"
             android:textColor="@android:color/white"
-            android:textSize="12sp" />
+            android:textSize="14sp" />
+    </ScrollView>
 
-        <!-- 🔘 Buttons -->
+    <!-- Knoppen -->
+    <LinearLayout
+        android:id="@+id/buttonsRow"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:orientation="horizontal">
 
         <Button
             android:id="@+id/btnOpslaanDelenReset"
             style="@style/Widget.VoiceTally.Button"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginLeft="12dp"
-            android:layout_marginTop="4dp"
-            android:layout_marginEnd="12dp"
-            android:text="Opslaan, Delen &amp; Reset"
-            android:textColor="@android:color/white"
-            android:textSize="12sp" />
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:text="Opslaan + Delen + Reset"
+            android:textSize="10dp" />
+
+        <View
+            android:layout_width="8dp"
+            android:layout_height="1dp" />
 
         <Button
             android:id="@+id/btnNieuweSessie"
             style="@style/Widget.VoiceTally.Button"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginLeft="12dp"
-            android:layout_marginTop="4dp"
-            android:layout_marginEnd="12dp"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
             android:text="Nieuwe sessie"
-            android:textColor="@android:color/white"
-            android:textSize="12sp" />
-
-<!--
-        <Button
-            android:id="@+id/btnEindeTelling"
-            style="@style/Widget.VoiceTally.Button"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginLeft="12dp"
-            android:layout_marginTop="4dp"
-            android:layout_marginEnd="12dp"
-            android:text="Einde telling"
-            android:textColor="@android:color/white"
-            android:textSize="12sp" />
--->
-
+            android:textSize="10dp" />
     </LinearLayout>
-</ScrollView>
+
+</LinearLayout>

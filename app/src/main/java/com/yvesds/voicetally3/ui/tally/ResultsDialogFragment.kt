@@ -71,6 +71,16 @@ class ResultsDialogFragment : DialogFragment() {
         txtResults = root.findViewById(R.id.txtResults)
         mapView = root.findViewById(R.id.mapViewResults)
 
+        // Zorg dat kaartgestures niet door ScrollView/parent onderschept worden
+        mapView?.setOnTouchListener { v, event ->
+            // voorkom dat ouder (dialoog/scroll) dit touch-event overneemt
+            v.parent?.requestDisallowInterceptTouchEvent(
+                event.actionMasked == MotionEvent.ACTION_DOWN || event.actionMasked == MotionEvent.ACTION_MOVE
+            )
+            // laat MapView zijn eigen gestures afhandelen
+            false
+        }
+
         // Init: tally + startlocatie
         currentTally = sharedSpeciesViewModel.tallyMap.value.orEmpty()
         val vmLoc = sharedSpeciesViewModel.gpsLocation.value
@@ -83,7 +93,7 @@ class ResultsDialogFragment : DialogFragment() {
         // Weer laden + initiele plaatsnaam ophalen, daarna UI renderen
         viewLifecycleOwner.lifecycleScope.launch {
             currentWeather = withContext(ioDispatcher) { weatherManager.fetchFullWeather(requireContext()) }
-            // Haal plaatsnaam bij initiele coordinaten (kan verschillen van weather.locationName)
+            // Haal plaatsnaam bij initiele coordinaten
             currentPlace = withContext(ioDispatcher) {
                 val lat = currentLat ?: 51.0
                 val lon = currentLon ?: 4.0
@@ -115,6 +125,7 @@ class ResultsDialogFragment : DialogFragment() {
 
     override fun onStart() {
         super.onStart()
+        // Maak dialoog zo breed mogelijk; hoogte mag scrollen als het moet
         dialog?.window?.setLayout(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT
@@ -174,12 +185,6 @@ class ResultsDialogFragment : DialogFragment() {
      *  - einde drag van de marker
      *  - long-press nieuwe plek
      *  - precise location update
-     *
-     * Doet:
-     *  - center kaart (optioneel al gebeurd)
-     *  - update accuracy circle (indien meegegeven)
-     *  - reverse geocode naar plaatsnaam (IO)
-     *  - update ViewModel gps + UI (plaats + coords)
      */
     private fun onMapPositionChanged(lat: Double, lon: Double, withAccuracy: Double?) {
         currentLat = lat
@@ -201,9 +206,7 @@ class ResultsDialogFragment : DialogFragment() {
         }
     }
 
-    /**
-     * Precise location vragen en dan de positie/plaatsnaam doorvoeren.
-     */
+    /** Precise location vragen en dan de positie/plaatsnaam doorvoeren. */
     private fun requestPreciseLocationUpdate() {
         val fused = LocationServices.getFusedLocationProviderClient(requireActivity())
         val cts = CancellationTokenSource()
@@ -223,11 +226,7 @@ class ResultsDialogFragment : DialogFragment() {
             }
     }
 
-    /**
-     * Teken of update een eenvoudige “accuracy circle” rond de marker.
-     * @param center middelpunt
-     * @param radiusMeters straal in meters; als null of <=0, verwijder de cirkel
-     */
+    /** Teken of update een eenvoudige accuracy circle rond de marker. */
     private fun updateAccuracyCircle(center: GeoPoint, radiusMeters: Double?) {
         val mv = mapView ?: return
         accuracyCircle?.let { mv.overlays.remove(it) }
@@ -255,18 +254,14 @@ class ResultsDialogFragment : DialogFragment() {
         val place = currentPlace ?: currentWeather?.locationName ?: "Onbekend"
         t.append(" Locatie: $place ($latStr, $lonStr)\n\n")
 
-        // Tellingen (alleen > 0 tonen)
+        // Tellingen (filter 0's eruit)
         t.append(" Tellingsoverzicht:\n\n")
-        val nonZero = currentTally.filterValues { it > 0 }
-        if (nonZero.isEmpty()) {
-            t.append(" (geen waarnemingen)\n")
-        } else {
-            nonZero.entries
-                .sortedBy { it.key }
-                .forEach { entry ->
-                    t.append("${entry.key}: ${entry.value}\n")
-                }
-        }
+        currentTally.entries
+            .filter { it.value > 0 }
+            .sortedBy { it.key }
+            .forEach { entry ->
+                t.append("${entry.key}: ${entry.value}\n")
+            }
 
         // Weer (optioneel)
         currentWeather?.let { w ->
@@ -328,8 +323,6 @@ class ResultsDialogFragment : DialogFragment() {
             SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(it))
         } ?: "?"
         val end = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
-
-        // Alleen tellers > 0 naar CSV
         val csvContent = buildString {
             append("GPS;Latitude;${lat ?: "NA"};Longitude;${lon ?: "NA"}\n")
             append("Aanvang;$start;Einde;$end\n")
@@ -345,17 +338,16 @@ class ResultsDialogFragment : DialogFragment() {
                 append("Omschrijving;${weatherManager.getWeatherDescription(w.weathercode)}\n")
             }
             append("Soortnaam;Aantal\n")
-            tallyMap
-                .filterValues { it > 0 }
-                .toSortedMap()
-                .forEach { (name, count) ->
-                    append("$name;$count\n")
+            tallyMap.entries
+                .filter { it.value > 0 }
+                .sortedBy { it.key }
+                .forEach { entry ->
+                    append("${entry.key};${entry.value}\n")
                 }
         }
         val csvUri = saveTextFile(csvFileName, csvContent, "text/csv")
         csvUri?.let { uris.add(it) }
 
-        // TXT-log: ook samenvatting bovenaan zonder 0’s
         val txtFileName = "log_$timestamp.txt"
         val txtContent = buildString {
             append("=== VoiceTally Log $timestamp ===\n\n")
@@ -364,20 +356,7 @@ class ResultsDialogFragment : DialogFragment() {
                         "${String.format(Locale.US, "%.9f", currentLat ?: 0.0)}, " +
                         "${String.format(Locale.US, "%.9f", currentLon ?: 0.0)})\n\n"
             )
-
-            append("--- Tellingsoverzicht ---\n")
-            val nonZero = tallyMap.filterValues { it > 0 }
-            if (nonZero.isEmpty()) {
-                append("(geen waarnemingen)\n")
-            } else {
-                nonZero.toSortedMap().forEach { (name, count) ->
-                    append("$name: $count\n")
-                }
-            }
-            append("\n")
-
             append(sharedSpeciesViewModel.exportAllSpeechLogs())
-
             weather?.let { w ->
                 append("\n--- Weerbericht ---\n")
                 append("Locatie: ${currentPlace ?: w.locationName}\n")
