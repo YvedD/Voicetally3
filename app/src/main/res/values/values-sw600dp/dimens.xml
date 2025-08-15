@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Grid: tablets ≈ 3 kolommen -->
+    <dimen name="grid_desired_column_width">260dp</dimen>
+
+    <!-- Iets ruimere spacing op tablet -->
+    <dimen name="tally_item_padding">10dp</dimen>
+    <dimen name="tally_item_spacing_vertical">8dp</dimen>
+    <dimen name="tally_item_spacing_horizontal">8dp</dimen>
+
+    <!-- Tekstgroottes (tablet) -->
+    <dimen name="tally_species_text_size">18sp</dimen>
+    <dimen name="tally_count_text_size">20sp</dimen>
+    <dimen name="tally_button_text_size">13sp</dimen>
+
+    <!-- Knopmaten (tablet) -->
+    <dimen name="tally_button_size">48dp</dimen>
+    <dimen name="tally_button_reset_width">60dp</dimen>
+    <dimen name="tally_button_inner_padding">3dp</dimen>
+</resources>

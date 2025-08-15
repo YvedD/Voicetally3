@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Grid: telefoons ≈ 2 kolommen bij ~360dp breed -->
+    <dimen name="grid_desired_column_width">180dp</dimen>
+
+    <!-- Item layout spacing -->
+    <dimen name="tally_item_padding">8dp</dimen>
+    <dimen name="tally_item_spacing_vertical">6dp</dimen>
+    <dimen name="tally_item_spacing_horizontal">6dp</dimen>
+
+    <!-- Tekstgroottes (telefoon) -->
+    <dimen name="tally_species_text_size">16sp</dimen>
+    <dimen name="tally_count_text_size">18sp</dimen>
+    <dimen name="tally_button_text_size">12sp</dimen>
+
+    <!-- Knopmaten (telefoon) -->
+    <dimen name="tally_button_size">44dp</dimen>
+    <dimen name="tally_button_reset_width">56dp</dimen>
+    <dimen name="tally_button_inner_padding">2dp</dimen>
+</resources>
