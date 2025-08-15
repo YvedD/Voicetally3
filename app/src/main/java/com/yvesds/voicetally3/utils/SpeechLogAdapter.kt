@@ -5,6 +5,8 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import androidx.core.content.ContextCompat
+import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.yvesds.voicetally3.R
 
@@ -12,58 +14,51 @@ import com.yvesds.voicetally3.R
  * Adapter voor het weergeven van spraaklogregels.
  *
  * Verbeteringen:
- * - Sterke types voor RecyclerView.Adapter<LogViewHolder>
- * - Stabiele IDs voor vloeiende recyclage (setHasStableIds + getItemId)
- * - Vermijdt dubbele items (op basis van text + type)
+ * - ListAdapter + DiffUtil (efficiëntere updates)
+ * - Stabiele IDs (text + type)
  * - Filtert standaard op showInUi of belangrijke types (TALLY_UPDATE, WARNING)
  * - Export in chronologische volgorde
  */
-class SpeechLogAdapter : RecyclerView.Adapter<SpeechLogAdapter.LogViewHolder>() {
-
-    private val logs: MutableList<LogEntry> = mutableListOf()
+class SpeechLogAdapter :
+    ListAdapter<LogEntry, SpeechLogAdapter.LogViewHolder>(Diff) {
 
     init {
-        // Stabiele IDs helpen tegen onnodig hertekenen/flikkeren
         setHasStableIds(true)
     }
 
-    /**
-     * Voeg een logregel toe. Wordt enkel getoond als:
-     * - entry.showInUi == true, of
-     * - het een belangrijk type is (TALLY_UPDATE, WARNING)
-     * Voorkomt duplicates met dezelfde (text + type).
-     */
+    /** Voeg één logregel toe. */
     fun addLine(entry: LogEntry) {
         val mustShow = entry.type == LogType.TALLY_UPDATE || entry.type == LogType.WARNING
-        val exists = logs.any { it.text == entry.text && it.type == entry.type }
-        if ((entry.showInUi || mustShow) && !exists) {
-            logs.add(0, entry)
-            notifyItemInserted(0)
-        }
+        if (!entry.showInUi && !mustShow) return
+
+        val current = currentList.toMutableList()
+        // voorkom duplicates op basis van (text + type)
+        val exists = current.any { it.text == entry.text && it.type == entry.type }
+        if (exists) return
+
+        current.add(0, entry)
+        submitList(current)
     }
 
-    /**
-     * Vervang de volledige lijst. Toont enkel relevante regels.
-     * Nieuwe weergave zet het meest recente bovenaan.
-     */
+    /** Vervang de volledige lijst (filtert op relevantie). */
     fun setLogs(newLogs: List<LogEntry>) {
-        logs.clear()
-        logs.addAll(
-            newLogs
-                .filter { it.showInUi || it.type == LogType.TALLY_UPDATE || it.type == LogType.WARNING }
-                .reversed() // oudste eerst, zodat laatste bovenaan komt na add(0, ...)
-        )
-        notifyDataSetChanged()
+        val filtered = newLogs
+            .filter { it.showInUi || it.type == LogType.TALLY_UPDATE || it.type == LogType.WARNING }
+            .reversed() // oudste eerst, zodat laatste bovenaan komt na add(0,...)
+        submitList(filtered)
     }
 
-    /**
-     * Exporteer alle logs die aangevinkt staan voor export, in chronologische volgorde.
-     */
+    /** Exporteer alle logs die aangevinkt staan voor export, in chronologische volgorde. */
     fun exportAllLogs(): String {
-        return logs
+        return currentList
             .filter { it.includeInExport }
             .reversed() // export in volgorde van ontstaan
             .joinToString("\n") { it.text }
+    }
+
+    override fun getItemId(position: Int): Long {
+        val entry = getItem(position)
+        return (31L * entry.text.hashCode() + entry.type.ordinal).toLong()
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): LogViewHolder {
@@ -73,16 +68,7 @@ class SpeechLogAdapter : RecyclerView.Adapter<SpeechLogAdapter.LogViewHolder>() 
     }
 
     override fun onBindViewHolder(holder: LogViewHolder, position: Int) {
-        holder.bind(logs[position])
-    }
-
-    override fun getItemCount(): Int = logs.size
-
-    override fun getItemId(position: Int): Long {
-        val entry = logs[position]
-        // Combineer text + type tot een stabiele (best effort) ID
-        val prime = 31L
-        return (prime * entry.text.hashCode() + entry.type.ordinal).toLong()
+        holder.bind(getItem(position))
     }
 
     class LogViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
@@ -104,6 +90,17 @@ class SpeechLogAdapter : RecyclerView.Adapter<SpeechLogAdapter.LogViewHolder>() 
                 LogType.WARNING -> ContextCompat.getColor(context, android.R.color.holo_orange_light)
                 LogType.INFO -> ContextCompat.getColor(context, android.R.color.secondary_text_dark)
             }
+        }
+    }
+
+    private object Diff : DiffUtil.ItemCallback<LogEntry>() {
+        override fun areItemsTheSame(oldItem: LogEntry, newItem: LogEntry): Boolean {
+            // zelfde (text + type) behandelen we als hetzelfde item
+            return oldItem.text == newItem.text && oldItem.type == newItem.type
+        }
+
+        override fun areContentsTheSame(oldItem: LogEntry, newItem: LogEntry): Boolean {
+            return oldItem == newItem
         }
     }
 }
