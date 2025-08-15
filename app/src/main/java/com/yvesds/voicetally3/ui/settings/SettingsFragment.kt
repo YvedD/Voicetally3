@@ -101,7 +101,7 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
         )
 
         settingsAdapter = SettingsAdapter(
-            items = settingsItems,
+            currentItems = settingsItems,           // ✅ juiste param-naam
             currentLanguage = currentLanguage,
             onToggle = { key, isChecked ->
                 sharedPrefsHelper.setBoolean(key, isChecked)

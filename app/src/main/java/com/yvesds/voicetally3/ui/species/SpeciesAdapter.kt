@@ -24,14 +24,14 @@ class SpeciesAdapter(
     }
 
     fun setSelectedSpecies(newSet: Set<String>) {
-        // update alleen zichtbare items via payload
-        val changed = (selectedSpecies xor newSet)
+        // Eenvoudige, robuuste check zonder 'xor' operator
+        val changed = selectedSpecies != newSet
+        if (!changed) return
+
         selectedSpecies.clear()
         selectedSpecies.addAll(newSet)
-        if (changed.isNotEmpty()) {
-            // brute aanpak: herbind alles met payload (lijst is meestal niet groot)
-            notifyItemRangeChanged(0, itemCount, PAYLOAD_CHECKED_STATE)
-        }
+        // Herbind enkel checked-state via payload
+        notifyItemRangeChanged(0, itemCount, PAYLOAD_CHECKED_STATE)
     }
 
     override fun getItemId(position: Int): Long = getItem(position).hashCode().toLong()

@@ -9,11 +9,10 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.yvesds.voicetally3.R
-import java.util.Map
 
 /**
  * Tellingen per soort.
- * - ListAdapter met DiffUtil op Map.Entry<String, Int>
+ * - ListAdapter met DiffUtil op Map.Entry<String, Int> (Kotlin)
  * - Payload update: bij count-verandering alleen de teller updaten
  * - Stabiele IDs op soortnaam
  */

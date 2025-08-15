@@ -1,13 +1,11 @@
 package com.yvesds.voicetally3.ui.tally
 
-import android.app.Dialog
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.net.Uri
 import android.os.Bundle
-import android.view.View
-import android.view.Window
+import android.view.*
 import android.widget.TextView
 import androidx.fragment.app.DialogFragment
 import androidx.fragment.app.activityViewModels
@@ -25,13 +23,13 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.osmdroid.config.Configuration
+import org.osmdroid.events.MapEventsReceiver
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
-import org.osmdroid.views.overlay.Polygon
 import org.osmdroid.views.overlay.MapEventsOverlay
-import org.osmdroid.events.MapEventsReceiver
+import org.osmdroid.views.overlay.Polygon
 import java.io.OutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -53,65 +51,77 @@ class ResultsDialogFragment : DialogFragment() {
     private var marker: Marker? = null
     private var accuracyCircle: Polygon? = null
 
-    override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
-        val dialog = Dialog(requireContext(), android.R.style.Theme_Black_NoTitleBar_Fullscreen)
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
-        dialog.setContentView(R.layout.dialog_results)
+    // UI
+    private var txtResults: TextView? = null
 
-        val tallyMap: Map<String, Int> = sharedSpeciesViewModel.tallyMap.value.orEmpty()
-        val txtResults: TextView = dialog.findViewById(R.id.txtResults)
-        mapView = dialog.findViewById(R.id.mapViewResults)
+    // Huidige (live) status die we in de UI renderen
+    private var currentTally: Map<String, Int> = emptyMap()
+    private var currentWeather: WeatherManager.FullWeather? = null
+    private var currentLat: Double? = null
+    private var currentLon: Double? = null
+    private var currentPlace: String? = null
 
-        // Fallback-coördinaten indien (nog) geen GPS bekend is
-        val location = sharedSpeciesViewModel.gpsLocation.value
-        val lat = location?.first ?: 51.0
-        val lon = location?.second ?: 4.0
+    override fun onCreateView(
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?,
+    ): View {
+        val root = inflater.inflate(R.layout.dialog_results, container, false)
 
+        txtResults = root.findViewById(R.id.txtResults)
+        mapView = root.findViewById(R.id.mapViewResults)
+
+        // Init: tally + startlocatie
+        currentTally = sharedSpeciesViewModel.tallyMap.value.orEmpty()
+        val vmLoc = sharedSpeciesViewModel.gpsLocation.value
+        currentLat = vmLoc?.first ?: 51.0
+        currentLon = vmLoc?.second ?: 4.0
+
+        // OSMDroid + kaart
+        initMap(currentLat ?: 51.0, currentLon ?: 4.0)
+
+        // Weer laden + initiele plaatsnaam ophalen, daarna UI renderen
         viewLifecycleOwner.lifecycleScope.launch {
-            val weather = withContext(ioDispatcher) { weatherManager.fetchFullWeather(requireContext()) }
-
-            val message = buildString {
-                append(" Tellingsoverzicht:\n\n")
-                tallyMap.entries.sortedBy { it.key }.forEach { entry ->
-                    append("${entry.key}: ${entry.value}\n")
-                }
-                if (weather != null) {
-                    append("\n️ Weerbericht\n\n")
-                    append(" Locatie: ${weather.locationName}\n")
-                    append(" Tijdstip: ${weather.time}\n")
-                    append("️ Temp: ${"%.1f".format(weather.temperature)} °C\n")
-                    append("️ Neerslag: ${weather.precipitation} mm\n")
-                    append("️ Wind: ${weather.windspeed} km/u (${weatherManager.toBeaufort(weather.windspeed)} Bf), ${weatherManager.toCompass(weather.winddirection)}\n")
-                    append("☁️ Bewolking: ${weatherManager.toOctas(weather.cloudcover)}/8\n")
-                    append("️ Zicht: ${weather.visibility} m\n")
-                    append(" Luchtdruk: ${weather.pressure} hPa\n")
-                    append(" Weer: ${weatherManager.getWeatherDescription(weather.weathercode)}\n")
-                }
+            currentWeather = withContext(ioDispatcher) { weatherManager.fetchFullWeather(requireContext()) }
+            // Haal plaatsnaam bij initiele coordinaten (kan verschillen van weather.locationName)
+            currentPlace = withContext(ioDispatcher) {
+                val lat = currentLat ?: 51.0
+                val lon = currentLon ?: 4.0
+                weatherManager.getLocalityName(requireContext(), lat, lon)
             }
-            txtResults.text = message
+            renderResultsText()
 
-            initMap(lat, lon)
+            // Vraag nog een precieze locatie-update (update marker + plaatsnaam + UI)
             requestPreciseLocationUpdate()
 
-            dialog.findViewById<View>(R.id.btnOpslaanDelenReset).setOnClickListener {
+            root.findViewById<View>(R.id.btnOpslaanDelenReset).setOnClickListener {
                 viewLifecycleOwner.lifecycleScope.launch {
-                    saveAllFiles(tallyMap, dialog.window?.decorView, weather, triggerShare = true)
+                    saveAllFiles(currentTally, root, currentWeather, triggerShare = true)
                     sharedSpeciesViewModel.resetAll()
-                    dismiss()
+                    dismissAllowingStateLoss()
                 }
             }
-            dialog.findViewById<View>(R.id.btnNieuweSessie).setOnClickListener {
+            root.findViewById<View>(R.id.btnNieuweSessie).setOnClickListener {
                 viewLifecycleOwner.lifecycleScope.launch {
-                    saveAllFiles(tallyMap, dialog.window?.decorView, weather, triggerShare = false)
+                    saveAllFiles(currentTally, root, currentWeather, triggerShare = false)
                     sharedSpeciesViewModel.resetAll()
-                    dismiss()
+                    dismissAllowingStateLoss()
                 }
             }
         }
 
-        return dialog
+        return root
     }
 
+    override fun onStart() {
+        super.onStart()
+        dialog?.window?.setLayout(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+    }
+
+    /** Bouwt de kaart en registreert listeners die realtime de UI bijwerken. */
     private fun initMap(lat: Double, lon: Double) {
         Configuration.getInstance().load(
             requireContext(),
@@ -120,7 +130,7 @@ class ResultsDialogFragment : DialogFragment() {
         mapView?.apply {
             setTileSource(TileSourceFactory.MAPNIK)
             setMultiTouchControls(true)
-            controller.setZoom(16.0) // iets dichterbij voor nauwkeuriger gevoel
+            controller.setZoom(16.0)
             controller.setCenter(GeoPoint(lat, lon))
 
             // Marker (sleepbaar om kleine correcties toe te laten)
@@ -133,8 +143,7 @@ class ResultsDialogFragment : DialogFragment() {
                     override fun onMarkerDrag(p0: Marker?) {}
                     override fun onMarkerDragEnd(p0: Marker?) {
                         p0?.position?.let { gp ->
-                            controller.animateTo(gp)
-                            updateAccuracyCircle(gp, null)
+                            onMapPositionChanged(gp.latitude, gp.longitude, withAccuracy = null)
                         }
                     }
                     override fun onMarkerDragStart(p0: Marker?) {}
@@ -144,13 +153,13 @@ class ResultsDialogFragment : DialogFragment() {
             overlays.add(m)
 
             // Long-press/tap verplaatsen
-            val eventsOverlay = org.osmdroid.views.overlay.MapEventsOverlay(object : MapEventsReceiver {
+            val eventsOverlay = MapEventsOverlay(object : MapEventsReceiver {
                 override fun singleTapConfirmedHelper(p: GeoPoint?): Boolean = false
                 override fun longPressHelper(p: GeoPoint?): Boolean {
                     if (p != null) {
                         marker?.position = p
                         controller.animateTo(p)
-                        updateAccuracyCircle(p, null)
+                        onMapPositionChanged(p.latitude, p.longitude, withAccuracy = null)
                         return true
                     }
                     return false
@@ -161,7 +170,39 @@ class ResultsDialogFragment : DialogFragment() {
     }
 
     /**
-     * Vraag een precieze, recente locatie op en update marker + (optioneel) accuraatheids-cirkel.
+     * Wordt aangeroepen bij:
+     *  - einde drag van de marker
+     *  - long-press nieuwe plek
+     *  - precise location update
+     *
+     * Doet:
+     *  - center kaart (optioneel al gebeurd)
+     *  - update accuracy circle (indien meegegeven)
+     *  - reverse geocode naar plaatsnaam (IO)
+     *  - update ViewModel gps + UI (plaats + coords)
+     */
+    private fun onMapPositionChanged(lat: Double, lon: Double, withAccuracy: Double?) {
+        currentLat = lat
+        currentLon = lon
+
+        // Update accuracy circle (kan null zijn)
+        val gp = GeoPoint(lat, lon)
+        updateAccuracyCircle(gp, withAccuracy)
+
+        // Schrijf nieuwe GPS weg naar de gedeelde VM
+        sharedSpeciesViewModel.setGpsLocation(lat, lon)
+
+        // Haal plaatsnaam async op en render daarna UI
+        viewLifecycleOwner.lifecycleScope.launch {
+            currentPlace = withContext(ioDispatcher) {
+                weatherManager.getLocalityName(requireContext(), lat, lon)
+            }
+            renderResultsText()
+        }
+    }
+
+    /**
+     * Precise location vragen en dan de positie/plaatsnaam doorvoeren.
      */
     private fun requestPreciseLocationUpdate() {
         val fused = LocationServices.getFusedLocationProviderClient(requireActivity())
@@ -169,23 +210,23 @@ class ResultsDialogFragment : DialogFragment() {
         fused.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, cts.token)
             .addOnSuccessListener { loc ->
                 if (loc != null) {
-                    val gp = GeoPoint(loc.latitude, loc.longitude)
-                    mapView?.controller?.animateTo(gp)
-                    marker?.position = gp
+                    val lat = loc.latitude
+                    val lon = loc.longitude
+                    mapView?.controller?.animateTo(GeoPoint(lat, lon))
+                    marker?.position = GeoPoint(lat, lon)
                     val acc = if (loc.hasAccuracy()) loc.accuracy.toDouble() else null
-                    updateAccuracyCircle(gp, acc)
-                    sharedSpeciesViewModel.setGpsLocation(loc.latitude, loc.longitude)
+                    onMapPositionChanged(lat, lon, acc)
                 }
             }
             .addOnFailureListener {
-                // geen update; blijven op fallback
+                // Geen update; we blijven op de huidige waarden
             }
     }
 
     /**
      * Teken of update een eenvoudige “accuracy circle” rond de marker.
      * @param center middelpunt
-     * @param radiusMeters straal in meters; als null, verwijder de cirkel
+     * @param radiusMeters straal in meters; als null of <=0, verwijder de cirkel
      */
     private fun updateAccuracyCircle(center: GeoPoint, radiusMeters: Double?) {
         val mv = mapView ?: return
@@ -204,28 +245,57 @@ class ResultsDialogFragment : DialogFragment() {
         mv.invalidate()
     }
 
-    private fun takeScreenshotOfView(view: View?): Bitmap {
-        val v = view ?: throw IllegalStateException("Decor view is null")
-        val bitmap = Bitmap.createBitmap(v.width, v.height, Bitmap.Config.ARGB_8888)
+    /** Render de resultaten-tekst op basis van de huidige state (tally, weer, locatie). */
+    private fun renderResultsText() {
+        val t = StringBuilder()
+
+        // Locatieblok bovenaan, altijd zichtbaar met 9 decimalen
+        val latStr = currentLat?.let { String.format(Locale.US, "%.9f", it) } ?: "NA"
+        val lonStr = currentLon?.let { String.format(Locale.US, "%.9f", it) } ?: "NA"
+        val place = currentPlace ?: currentWeather?.locationName ?: "Onbekend"
+        t.append(" Locatie: $place ($latStr, $lonStr)\n\n")
+
+        // Tellingen
+        t.append(" Tellingsoverzicht:\n\n")
+        currentTally.entries.sortedBy { it.key }.forEach { entry ->
+            t.append("${entry.key}: ${entry.value}\n")
+        }
+
+        // Weer (optioneel)
+        currentWeather?.let { w ->
+            t.append("\n️ Weerbericht\n\n")
+            t.append(" Tijdstip: ${w.time}\n")
+            t.append("️ Temp: ${"%.1f".format(w.temperature)} °C\n")
+            t.append("️ Neerslag: ${w.precipitation} mm\n")
+            t.append("️ Wind: ${w.windspeed} km/u (${weatherManager.toBeaufort(w.windspeed)} Bf), ${weatherManager.toCompass(w.winddirection)}\n")
+            t.append("☁️ Bewolking: ${weatherManager.toOctas(w.cloudcover)}/8\n")
+            t.append("️ Zicht: ${w.visibility} m\n")
+            t.append(" Luchtdruk: ${w.pressure} hPa\n")
+            t.append(" Weer: ${weatherManager.getWeatherDescription(w.weathercode)}\n")
+        }
+
+        txtResults?.text = t.toString()
+    }
+
+    private fun takeScreenshotOfView(view: View): Bitmap {
+        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
-        v.draw(canvas)
+        view.draw(canvas)
         return bitmap
     }
 
     private suspend fun saveAllFiles(
         tallyMap: Map<String, Int>,
-        view: View?,
+        rootView: View,
         weather: WeatherManager.FullWeather?,
         triggerShare: Boolean
     ) {
-        // Gebruik de (eventueel handmatig gecorrigeerde) markerpositie als waarheid voor export.
-        val currentPos = marker?.position
-        val lat = currentPos?.latitude ?: sharedSpeciesViewModel.gpsLocation.value?.first
-        val lon = currentPos?.longitude ?: sharedSpeciesViewModel.gpsLocation.value?.second
+        val lat = currentLat
+        val lon = currentLon
         val timestamp = getTimestamp()
 
         // Screenshot tekenen (UI) en wegschrijven (IO)
-        val bitmap = takeScreenshotOfView(view)
+        val bitmap = takeScreenshotOfView(rootView)
         val screenshotUri = withContext(ioDispatcher) { saveScreenshotBitmap(bitmap, timestamp) }
         val uris = withContext(ioDispatcher) {
             saveCsvAndTxt(tallyMap, lat, lon, weather, timestamp)
@@ -254,16 +324,16 @@ class ResultsDialogFragment : DialogFragment() {
         val csvContent = buildString {
             append("GPS;Latitude;${lat ?: "NA"};Longitude;${lon ?: "NA"}\n")
             append("Aanvang;$start;Einde;$end\n")
-            if (weather != null) {
-                append("Weer;Locatie;${weather.locationName}\n")
-                append("Tijd;${weather.time}\n")
-                append("Temperatuur;${"%.1f".format(weather.temperature)} °C\n")
-                append("Neerslag;${weather.precipitation} mm\n")
-                append("Wind;${weather.windspeed} km/u;Beaufort;${weatherManager.toBeaufort(weather.windspeed)};Richting;${weatherManager.toCompass(weather.winddirection)}\n")
-                append("Bewolking;${weatherManager.toOctas(weather.cloudcover)}/8\n")
-                append("Zicht;${weather.visibility} m\n")
-                append("Luchtdruk;${weather.pressure} hPa\n")
-                append("Omschrijving;${weatherManager.getWeatherDescription(weather.weathercode)}\n")
+            weather?.let { w ->
+                append("Weer;Locatie;${currentPlace ?: w.locationName}\n")
+                append("Tijd;${w.time}\n")
+                append("Temperatuur;${"%.1f".format(w.temperature)} °C\n")
+                append("Neerslag;${w.precipitation} mm\n")
+                append("Wind;${w.windspeed} km/u;Beaufort;${weatherManager.toBeaufort(w.windspeed)};Richting;${weatherManager.toCompass(w.winddirection)}\n")
+                append("Bewolking;${weatherManager.toOctas(w.cloudcover)}/8\n")
+                append("Zicht;${w.visibility} m\n")
+                append("Luchtdruk;${w.pressure} hPa\n")
+                append("Omschrijving;${weatherManager.getWeatherDescription(w.weathercode)}\n")
             }
             append("Soortnaam;Aantal\n")
             tallyMap.entries.sortedBy { it.key }.forEach { entry ->
@@ -276,18 +346,20 @@ class ResultsDialogFragment : DialogFragment() {
         val txtFileName = "log_$timestamp.txt"
         val txtContent = buildString {
             append("=== VoiceTally Log $timestamp ===\n\n")
+            // Neem de reeds opgebouwde UI-tekst bovenaan ook mee (locatie + coords)
+            append("Locatie: ${currentPlace ?: "Onbekend"} (${String.format(Locale.US, "%.9f", currentLat ?: 0.0)}, ${String.format(Locale.US, "%.9f", currentLon ?: 0.0)})\n\n")
             append(sharedSpeciesViewModel.exportAllSpeechLogs())
-            if (weather != null) {
+            weather?.let { w ->
                 append("\n--- Weerbericht ---\n")
-                append("Locatie: ${weather.locationName}\n")
-                append("Tijd: ${weather.time}\n")
-                append("Temp: ${"%.1f".format(weather.temperature)} °C\n")
-                append("Neerslag: ${weather.precipitation} mm\n")
-                append("Wind: ${weather.windspeed} km/u (${weatherManager.toBeaufort(weather.windspeed)} Bf), ${weatherManager.toCompass(weather.winddirection)}\n")
-                append("Bewolking: ${weatherManager.toOctas(weather.cloudcover)}/8\n")
-                append("Zicht: ${weather.visibility} m\n")
-                append("Luchtdruk: ${weather.pressure} hPa\n")
-                append("Omschrijving: ${weatherManager.getWeatherDescription(weather.weathercode)}\n")
+                append("Locatie: ${currentPlace ?: w.locationName}\n")
+                append("Tijd: ${w.time}\n")
+                append("Temp: ${"%.1f".format(w.temperature)} °C\n")
+                append("Neerslag: ${w.precipitation} mm\n")
+                append("Wind: ${w.windspeed} km/u (${weatherManager.toBeaufort(w.windspeed)} Bf), ${weatherManager.toCompass(w.winddirection)}\n")
+                append("Bewolking: ${weatherManager.toOctas(w.cloudcover)}/8\n")
+                append("Zicht: ${w.visibility} m\n")
+                append("Luchtdruk: ${w.pressure} hPa\n")
+                append("Omschrijving: ${weatherManager.getWeatherDescription(w.weathercode)}\n")
             }
         }
         val txtUri = saveTextFile(txtFileName, txtContent, "text/plain")

@@ -91,7 +91,12 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
     private fun observeTallyMap() {
         viewLifecycleOwner.lifecycleScope.launch {
             sharedSpeciesViewModel.tallyMap.collectLatest { map ->
-                val items = map.entries.sortedBy { it.key }
+                // Gebruik direct de Kotlin Map.Entry items; geen Java SimpleEntry conversie
+                val items: List<Map.Entry<String, Int>> =
+                    map.entries
+                        .sortedBy { it.key }
+                        .toList()
+
                 tallyAdapter.submitList(items)
             }
         }
