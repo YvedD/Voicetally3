@@ -7,7 +7,9 @@ import android.util.Log
 import android.view.*
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.DialogFragment
-import com.google.android.gms.location.*
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 import com.yvesds.voicetally3.R
 import com.yvesds.voicetally3.databinding.DialogMapBinding
 import org.osmdroid.config.Configuration
@@ -23,7 +25,8 @@ class MapDialogFragment : DialogFragment() {
     private lateinit var fusedLocationClient: FusedLocationProviderClient
 
     override fun onCreateView(
-        inflater: LayoutInflater, container: ViewGroup?,
+        inflater: LayoutInflater,
+        container: ViewGroup?,
         savedInstanceState: Bundle?,
     ): View {
         _binding = DialogMapBinding.inflate(inflater, container, false)
@@ -38,18 +41,14 @@ class MapDialogFragment : DialogFragment() {
             requireContext(),
             androidx.preference.PreferenceManager.getDefaultSharedPreferences(requireContext())
         )
-
         val map = binding.mapView
         map.setTileSource(TileSourceFactory.MAPNIK)
         map.setMultiTouchControls(true)
 
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(requireActivity())
-
         checkLocationPermissionAndFetch()
 
-        binding.buttonClose.setOnClickListener {
-            dismiss()
-        }
+        binding.buttonClose.setOnClickListener { dismiss() }
     }
 
     private fun checkLocationPermissionAndFetch() {
@@ -57,7 +56,6 @@ class MapDialogFragment : DialogFragment() {
             requireContext(),
             Manifest.permission.ACCESS_FINE_LOCATION
         ) == PackageManager.PERMISSION_GRANTED
-
         if (granted) {
             fetchLocation()
         } else {
@@ -76,12 +74,12 @@ class MapDialogFragment : DialogFragment() {
                 map.controller.setZoom(18.0)
                 map.controller.setCenter(geoPoint)
 
-                val marker = Marker(map)
-                marker.position = geoPoint
-                marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                marker.title = "Jouw locatie"
+                val marker = Marker(map).apply {
+                    position = geoPoint
+                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                    title = "Jouw locatie"
+                }
                 map.overlays.add(marker)
-
             }
             .addOnFailureListener {
                 Log.e("MapDialogFragment", "❌ Fout bij ophalen locatie", it)

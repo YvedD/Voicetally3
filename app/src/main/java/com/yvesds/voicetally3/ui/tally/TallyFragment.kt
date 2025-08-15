@@ -11,9 +11,6 @@ import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.android.gms.location.LocationServices
 import com.yvesds.voicetally3.R
-import com.yvesds.voicetally3.data.CSVManager
-import com.yvesds.voicetally3.data.SettingsKeys
-import com.yvesds.voicetally3.data.SharedPrefsHelper
 import com.yvesds.voicetally3.databinding.FragmentTallyBinding
 import com.yvesds.voicetally3.ui.shared.SharedSpeciesViewModel
 import com.yvesds.voicetally3.utils.LogEntry
@@ -23,12 +20,15 @@ import com.yvesds.voicetally3.utils.SpeechParsingBuffer
 import com.yvesds.voicetally3.utils.SpeechParsingUseCase
 import com.yvesds.voicetally3.utils.SpeechRecognitionHelper
 import com.yvesds.voicetally3.utils.SoundPlayer
+import com.yvesds.voicetally3.data.SettingsKeys
+import com.yvesds.voicetally3.data.SharedPrefsHelper
 import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
+import javax.inject.Named
 
 @AndroidEntryPoint
 class TallyFragment : Fragment(R.layout.fragment_tally) {
@@ -43,10 +43,12 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
     private lateinit var speechHelper: SpeechRecognitionHelper
     private lateinit var parsingBuffer: SpeechParsingBuffer
 
-    @Inject lateinit var csvManager: CSVManager
     @Inject lateinit var parsingUseCase: SpeechParsingUseCase
     @Inject lateinit var sharedPrefsHelper: SharedPrefsHelper
     @Inject lateinit var soundPlayer: SoundPlayer
+
+    // Inject de CPU-bound dispatcher (aanbevolen i.p.v. hardcoded Dispatchers.Default)
+    @Inject @Named("Default") lateinit var defaultDispatcher: CoroutineDispatcher
 
     /** Laatste FINAL die verwerkt werd, om duplicates te negeren. */
     private var lastFinalProcessed: String? = null
@@ -106,11 +108,11 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
 
     private fun setupSpeechHelper() {
         parsingBuffer = SpeechParsingBuffer()
-
         speechHelper = SpeechRecognitionHelper(
             context = requireContext(),
             onFinalResult = { spokenText ->
                 val normalized = spokenText.lowercase().trim()
+
                 if (normalized == lastFinalProcessed) {
                     val showWarnings = sharedPrefsHelper.getBoolean(SettingsKeys.LOG_WARNINGS, true)
                     addLogLine(
@@ -134,6 +136,7 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
                         type = LogType.FINAL
                     )
                 )
+
                 parseAndUpdateMultiple(normalized)
             },
             onPartialResult = { partial ->
@@ -141,7 +144,7 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
                 val showPartials = sharedPrefsHelper.getBoolean(SettingsKeys.LOG_PARTIALS, true)
                 addLogLine(
                     LogEntry(
-                        text = " Partial: ${partial.lowercase()}",
+                        text = "  Partial: ${partial.lowercase()}",
                         showInUi = showPartials,
                         includeInExport = true,
                         type = LogType.PARTIAL
@@ -191,7 +194,11 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
         }
     }
 
-    private fun addLogLine(text: String, showInUi: Boolean = true, type: LogType = LogType.INFO) {
+    private fun addLogLine(
+        text: String,
+        showInUi: Boolean = true,
+        type: LogType = LogType.INFO
+    ) {
         addLogLine(
             LogEntry(
                 text = text,
@@ -234,14 +241,14 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
     /** Verwerk meerdere (soort, aantal)-paren in één final uiting. */
     private fun parseAndUpdateMultiple(spokenText: String) {
         viewLifecycleOwner.lifecycleScope.launch {
-            // 1) Bouw alias-map op main (reads uit StateFlow)
+            // 1) Bouw alias-map (merge actief + fallback)
             val aliasMap: Map<String, String> = buildMap {
                 putAll(sharedSpeciesViewModel.actieveAliasMap.value)
                 putAll(sharedSpeciesViewModel.fallbackAliasMap.value)
             }
 
-            // 2) Parse in background
-            val results = withContext(Dispatchers.Default) {
+            // 2) Parse in background (CPU-bound)
+            val results = withContext(defaultDispatcher) {
                 parsingUseCase.executeAll(
                     transcript = spokenText,
                     aliasToSpeciesMap = aliasMap
@@ -249,20 +256,19 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
             }
 
             // 3) Bereid UI-gegevens voor in background (geen UI calls!)
-            val prepared = withContext(Dispatchers.Default) {
+            data class Prepared(
+                val parsedBlockLines: List<LogEntry>,
+                val logLines: List<LogEntry>,
+                val validUpdates: List<Pair<String, Int>>,
+                val pendingAdditions: List<Pair<String, Int>>
+            )
+
+            val prepared = withContext(defaultDispatcher) {
                 val selected = sharedSpeciesViewModel.selectedSpecies.value
                 val allKnownSpecies = sharedSpeciesViewModel.speciesList
-
                 val showParsedBlocks = sharedPrefsHelper.getBoolean(SettingsKeys.LOG_PARSED_BLOCKS, true)
                 val showWarnings = sharedPrefsHelper.getBoolean(SettingsKeys.LOG_WARNINGS, true)
                 val showErrors = sharedPrefsHelper.getBoolean(SettingsKeys.LOG_ERRORS, true)
-
-                data class Pack(
-                    val parsedBlockLines: List<LogEntry>,
-                    val logLines: List<LogEntry>,
-                    val validUpdates: List<Pair<String, Int>>,
-                    val pendingAdditions: List<Pair<String, Int>>
-                )
 
                 if (results.isEmpty()) {
                     val err = LogEntry(
@@ -271,18 +277,24 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
                         includeInExport = true,
                         type = LogType.ERROR
                     )
-                    Pack(parsedBlockLines = emptyList(), logLines = listOf(err), validUpdates = emptyList(), pendingAdditions = emptyList())
+                    Prepared(
+                        parsedBlockLines = emptyList(),
+                        logLines = listOf(err),
+                        validUpdates = emptyList(),
+                        pendingAdditions = emptyList()
+                    )
                 } else {
-                    val parsedBlockLines = if (showParsedBlocks) {
-                        results.map { r ->
-                            LogEntry(
-                                text = " Gevonden: ${r.species} → ${r.count}",
-                                showInUi = true,
-                                includeInExport = true,
-                                type = LogType.PARSED_BLOCK
-                            )
-                        }
-                    } else emptyList()
+                    val parsedBlockLines: List<LogEntry> =
+                        if (showParsedBlocks) {
+                            results.map { r ->
+                                LogEntry(
+                                    text = "  Gevonden: ${r.species} → ${r.count}",
+                                    showInUi = true,
+                                    includeInExport = true,
+                                    type = LogType.PARSED_BLOCK
+                                )
+                            }
+                        } else emptyList()
 
                     val logLines = mutableListOf<LogEntry>()
                     val validUpdates = mutableListOf<Pair<String, Int>>()
@@ -322,7 +334,7 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
                         }
                     }
 
-                    Pack(
+                    Prepared(
                         parsedBlockLines = parsedBlockLines,
                         logLines = logLines,
                         validUpdates = validUpdates,
@@ -332,32 +344,30 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
             }
 
             // 4) UITSLUITEND OP MAIN: logs toevoegen, tallies bijwerken, geluiden, dialogen
-            withContext(Dispatchers.Main) {
-                prepared.parsedBlockLines.forEach { addLogLine(it) }
-                prepared.logLines.forEach { addLogLine(it) }
+            prepared.parsedBlockLines.forEach { addLogLine(it) }
+            prepared.logLines.forEach { addLogLine(it) }
 
-                if (prepared.validUpdates.isNotEmpty()) {
-                    sharedSpeciesViewModel.updateTallies(prepared.validUpdates)
-                    soundPlayer.play("success")
-                }
+            if (prepared.validUpdates.isNotEmpty()) {
+                sharedSpeciesViewModel.updateTallies(prepared.validUpdates)
+                soundPlayer.play("success")
+            }
 
-                prepared.pendingAdditions.forEach { (species, amount) ->
-                    AlertDialog.Builder(requireContext())
-                        .setTitle("Soort niet geselecteerd")
-                        .setMessage("Wil je '${species.replaceFirstChar { it.uppercase() }}' toevoegen aan de tellingen?")
-                        .setPositiveButton("Toevoegen") { _, _ ->
-                            sharedSpeciesViewModel.addSpeciesToSelection(species, amount)
-                            soundPlayer.play("success")
-                        }
-                        .setNegativeButton("Annuleren") { _, _ ->
-                            soundPlayer.play("error")
-                        }
-                        .show()
-                }
+            prepared.pendingAdditions.forEach { (species, amount) ->
+                AlertDialog.Builder(requireContext())
+                    .setTitle("Soort niet geselecteerd")
+                    .setMessage("Wil je '${species.replaceFirstChar { it.uppercase() }}' toevoegen aan de tellingen?")
+                    .setPositiveButton("Toevoegen") { _, _ ->
+                        sharedSpeciesViewModel.addSpeciesToSelection(species, amount)
+                        soundPlayer.play("success")
+                    }
+                    .setNegativeButton("Annuleren") { _, _ ->
+                        soundPlayer.play("error")
+                    }
+                    .show()
+            }
 
-                if (prepared.validUpdates.isEmpty() && prepared.pendingAdditions.isEmpty()) {
-                    soundPlayer.play("error")
-                }
+            if (prepared.validUpdates.isEmpty() && prepared.pendingAdditions.isEmpty()) {
+                soundPlayer.play("error")
             }
         }
     }

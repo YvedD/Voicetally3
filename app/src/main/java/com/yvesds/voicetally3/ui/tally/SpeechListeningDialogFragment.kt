@@ -16,11 +16,10 @@ import kotlinx.coroutines.launch
 /**
  * Toont live de spraaklogs in een lijst terwijl de herkenning bezig is.
  *
- * Verbeteringen t.o.v. de oorspronkelijke versie:
- * - Geen hardcoded voorbeeldlogs meer; we gebruiken de gedeelde ViewModel (speechLogs).
- * - Lifecycle-aware verzamelen van logs (collectLatest in viewLifecycleOwner.lifecycleScope).
+ * Verbeteringen:
+ * - Lifecycle-aware verzamelen van logs.
  * - Auto-scroll naar boven bij nieuwe regels.
- * - Stabiele RecyclerView-config (fixed size + LinearLayoutManager).
+ * - Stabiele RecyclerView-config.
  */
 class SpeechListeningDialogFragment : DialogFragment() {
 
@@ -28,7 +27,6 @@ class SpeechListeningDialogFragment : DialogFragment() {
     private val binding get() = _binding!!
 
     private val sharedSpeciesViewModel: SharedSpeciesViewModel by activityViewModels()
-
     private lateinit var logAdapter: SpeechLogAdapter
 
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
@@ -36,7 +34,6 @@ class SpeechListeningDialogFragment : DialogFragment() {
         _binding = DialogSpeechListeningBinding.inflate(layoutInflater)
         dialog.setContentView(binding.root)
 
-        // Zorg dat het dialoog mooi breed/hoog is (indien layout dit toelaat)
         dialog.window?.setLayout(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.WRAP_CONTENT

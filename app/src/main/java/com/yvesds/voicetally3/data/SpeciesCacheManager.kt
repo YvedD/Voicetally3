@@ -1,68 +1,108 @@
 package com.yvesds.voicetally3.data
 
 import android.util.Log
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * Thread-safe, lazy caches:
+ * - speciesListCache: List<String>
+ * - aliasMapCache: Map<species(lowercase) -> List<alias(lowercase) inclusief canonical>>
+ * - aliasToDisplayMapCache: Map<alias(lowercase) -> species (displaynaam zoals in soorten.csv)>
+ *
+ * Sync-methodes blijven bestaan (back-compat). Gebruik waar mogelijk de suspend-varianten.
+ */
 @Singleton
 class SpeciesCacheManager @Inject constructor(
     private val aliasRepository: AliasRepository,
     private val sharedPrefsHelper: SharedPrefsHelper
 ) {
 
-    private var speciesList: List<String>? = null
-    private var aliasMap: Map<String, List<String>>? = null
-    private var aliasToDisplayMap: Map<String, String>? = null
+    @Volatile private var speciesListCache: List<String>? = null
+    @Volatile private var aliasMapCache: Map<String, List<String>>? = null
+    @Volatile private var aliasToDisplayMapCache: Map<String, String>? = null
 
-    /**
-     * 🚀 Laad of geef bestaande soortenlijst uit soorten.csv
-     */
+    private val buildMutex = Mutex()
+
+    /** Sync: kan main thread blokkeren; bij voorkeur de suspend-variant gebruiken. */
     fun getSpeciesList(): List<String> {
-        if (speciesList == null) {
-            speciesList = aliasRepository.getAllSpecies()
-            Log.d("SpeciesCacheManager", "✅ Soortenlijst geladen (${speciesList?.size} soorten)")
+        if (speciesListCache == null) {
+            speciesListCache = aliasRepository.getAllSpecies()
+            Log.d("SpeciesCacheManager", "✅ Soortenlijst geladen (${speciesListCache?.size} soorten)")
         }
-        return speciesList!!
+        return speciesListCache!!
     }
 
-    /**
-     * 📥 Bouw een map van soortnaam → lijst van aliassen (inclusief zichzelf)
-     */
+    /** Suspend: laadt veilig op IO dispatcher en cachet. */
+    suspend fun getSpeciesListSuspend(): List<String> = withContext(Dispatchers.IO) {
+        speciesListCache ?: buildMutex.withLock {
+            speciesListCache ?: aliasRepository.getAllSpeciesSuspend().also { speciesListCache = it }
+        }
+    }
+
+    /** Sync: alias-map (species -> aliases inclusief canonical). */
     fun getAliasMap(): Map<String, List<String>> {
-        if (aliasMap == null) {
-            val result = mutableMapOf<String, List<String>>()
-            getSpeciesList().forEach { species ->
+        if (aliasMapCache == null) {
+            val result = LinkedHashMap<String, List<String>>()
+            for (species in getSpeciesList()) {
                 val aliases = aliasRepository.loadAliasesForSpecies(species)
                 val combined = (aliases + species).map { it.lowercase().trim() }.distinct()
                 result[species.lowercase()] = combined
             }
-            aliasMap = result
-            Log.d("SpeciesCacheManager", "✅ AliasMap opgebouwd (${aliasMap?.size} soorten)")
+            aliasMapCache = result
+            Log.d("SpeciesCacheManager", "✅ AliasMap opgebouwd (${aliasMapCache?.size} soorten)")
         }
-        return aliasMap!!
+        return aliasMapCache!!
     }
 
-    /**
-     * 🔁 Bouw alias → soort display map op
-     */
+    /** Suspend: alias-map bouwen off-main. */
+    suspend fun getAliasMapSuspend(): Map<String, List<String>> = withContext(Dispatchers.IO) {
+        aliasMapCache ?: buildMutex.withLock {
+            aliasMapCache ?: run {
+                val result = LinkedHashMap<String, List<String>>()
+                for (species in getSpeciesListSuspend()) {
+                    val aliases = aliasRepository.loadAliasesForSpeciesSuspend(species)
+                    val combined = (aliases + species).map { it.lowercase().trim() }.distinct()
+                    result[species.lowercase()] = combined
+                }
+                result.toMap().also { aliasMapCache = it }
+            }
+        }
+    }
+
+    /** Sync: alias(lowercase) -> species(display). */
     fun getAliasToDisplayMap(): Map<String, String> {
-        if (aliasToDisplayMap == null) {
+        if (aliasToDisplayMapCache == null) {
             val map = getAliasMap().flatMap { (species, aliases) ->
                 aliases.map { alias -> alias to species }
             }.toMap()
-            aliasToDisplayMap = map
+            aliasToDisplayMapCache = map
             Log.d("SpeciesCacheManager", "✅ AliasToDisplayMap opgebouwd (${map.size} aliassen)")
         }
-        return aliasToDisplayMap!!
+        return aliasToDisplayMapCache!!
     }
 
-    /**
-     * ♻️ Leeg alle caches
-     */
+    /** Suspend: alias(lowercase) -> species(display). */
+    suspend fun getAliasToDisplayMapSuspend(): Map<String, String> = withContext(Dispatchers.IO) {
+        aliasToDisplayMapCache ?: buildMutex.withLock {
+            aliasToDisplayMapCache ?: run {
+                val base = getAliasMapSuspend()
+                base.flatMap { (species, aliases) ->
+                    aliases.map { alias -> alias to species }
+                }.toMap().also { aliasToDisplayMapCache = it }
+            }
+        }
+    }
+
+    /** Caches leegmaken. */
     fun invalidate() {
-        speciesList = null
-        aliasMap = null
-        aliasToDisplayMap = null
+        speciesListCache = null
+        aliasMapCache = null
+        aliasToDisplayMapCache = null
         Log.d("SpeciesCacheManager", "♻️ Caches gewist")
     }
 }

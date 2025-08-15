@@ -29,13 +29,14 @@ import com.yvesds.voicetally3.data.SharedPrefsHelper
 import com.yvesds.voicetally3.managers.StorageManager
 import com.yvesds.voicetally3.ui.main.MapDialogFragment
 import com.yvesds.voicetally3.ui.tally.ResultsDialogFragment
-import com.yvesds.voicetally3.ui.tally.TallyFragment
 import com.yvesds.voicetally3.utils.SoundPlayer
 import com.yvesds.voicetally3.utils.UiHelper
 import com.yvesds.voicetally3.utils.weather.WeatherManager
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import java.util.*
+import kotlinx.coroutines.withContext
+import java.util.Calendar
 import javax.inject.Inject
 import kotlin.system.exitProcess
 
@@ -54,6 +55,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private val handler = Handler(Looper.getMainLooper())
+
     private val autoSaveRunnable = object : Runnable {
         override fun run() {
             if (sharedPrefsHelper.getBoolean("auto_save_per_hour", false)) {
@@ -64,53 +66,64 @@ class MainActivity : AppCompatActivity() {
                     Log.d(TAG, "⏰ Auto-save trigger om minuut 58.")
                     showResultsDialog()
                 }
-                handler.postDelayed(this, 60000)
+                handler.postDelayed(this, 60_000)
             }
         }
     }
 
-    private val safPickerLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        val uri = result.data?.data
-        if (result.resultCode == Activity.RESULT_OK && uri != null) {
-            try {
-                val takeFlags = result.data?.flags?.and(
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                            Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                ) ?: 0
-                contentResolver.takePersistableUriPermission(uri, takeFlags)
-                sharedPrefsHelper.setString(KEY_SAF_URI, uri.toString())
-                Log.d(TAG, "✅ Gebruiker koos SAF: $uri")
-                val success = csvManager.ensureInitialStructure()
-                Log.d(TAG, if (success) "✅ Structuur opgebouwd na SAF-keuze" else "❌ Structuuropbouw faalde")
-            } catch (e: SecurityException) {
-                Log.e(TAG, "❌ Kon permissie niet nemen", e)
+    private val safPickerLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            val uri = result.data?.data
+            if (result.resultCode == Activity.RESULT_OK && uri != null) {
+                try {
+                    val takeFlags = result.data?.flags?.and(
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                    ) ?: 0
+                    contentResolver.takePersistableUriPermission(uri, takeFlags)
+                    sharedPrefsHelper.setString(KEY_SAF_URI, uri.toString())
+                    Log.d(TAG, "✅ Gebruiker koos SAF: $uri")
+
+                    // Structuur opbouwen off-main
+                    lifecycleScope.launch {
+                        val success = withContext(Dispatchers.IO) {
+                            csvManager.ensureInitialStructureSuspend()
+                        }
+                        Log.d(TAG, if (success) "✅ Structuur opgebouwd na SAF-keuze" else "❌ Structuuropbouw faalde")
+                        requestAllRuntimePermissions()
+                    }
+                } catch (e: SecurityException) {
+                    Log.e(TAG, "❌ Kon permissie niet nemen", e)
+                }
+            } else {
+                Log.w(TAG, "⚠️ SAF Picker geannuleerd of gaf null URI.")
+                requestAllRuntimePermissions()
             }
-        } else {
-            Log.w(TAG, "⚠️ SAF Picker geannuleerd of gaf null URI.")
         }
-        requestAllRuntimePermissions()
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+
         val toolbar = findViewById<MaterialToolbar>(R.id.toolbar)
         setSupportActionBar(toolbar)
+
         updateAutoSaveTimer()
         ensureDocumentsAccessAndSetup()
     }
 
     private fun ensureDocumentsAccessAndSetup() {
         val safUriString = sharedPrefsHelper.getString(KEY_SAF_URI)
-        val hasStructure = storageManager.ensureVoiceTallyStructure()
-        if (!hasStructure || safUriString == null) {
-            Log.w(TAG, "⚠️ Geen toegang of structuur ontbreekt. User prompt nodig.")
-            launchDocumentsPicker()
-        } else {
-            Log.i(TAG, "✅ Documents + VoiceTally structuur OK.")
-            requestAllRuntimePermissions()
+        lifecycleScope.launch {
+            val hasStructure = withContext(Dispatchers.IO) {
+                storageManager.ensureVoiceTallyStructure()
+            }
+            if (!hasStructure || safUriString == null) {
+                Log.w(TAG, "⚠️ Geen toegang of structuur ontbreekt. User prompt nodig.")
+                launchDocumentsPicker()
+            } else {
+                Log.i(TAG, "✅ Documents + VoiceTally structuur OK.")
+                requestAllRuntimePermissions()
+            }
         }
     }
 
@@ -146,7 +159,11 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == 1001) {
             val denied = grantResults.indices.filter { grantResults[it] != PackageManager.PERMISSION_GRANTED }
@@ -158,16 +175,19 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** Laad lichte init (bestandslijst) off-main en start daarna de navigatie. */
     private fun loadSpeciesCacheAndInitApp() {
-        val allSpecies = storageManager.getVoiceTallyRoot()
-            ?.findFile("assets")
-            ?.listFiles()
-            ?.filter { it.name?.endsWith(".csv") == true && it.name != "soorten.csv" }
-            ?.mapNotNull { it.name?.removeSuffix(".csv") }
-            ?.sortedBy { it.lowercase() }
-            ?: emptyList()
-        Log.i(TAG, "✅ Soortenbestanden gevonden: ${allSpecies.size} aliassenbestanden")
-        initNavigation()
+        lifecycleScope.launch {
+            val count = withContext(Dispatchers.IO) {
+                val root = storageManager.getVoiceTallyRoot()
+                root?.findFile("assets")
+                    ?.listFiles()
+                    ?.count { it.name?.endsWith(".csv") == true && it.name != "soorten.csv" }
+                    ?: 0
+            }
+            Log.i(TAG, "✅ Soortenbestanden gevonden: $count aliassenbestanden")
+            initNavigation()
+        }
     }
 
     private fun initNavigation() {
@@ -193,14 +213,11 @@ class MainActivity : AppCompatActivity() {
                 true
             }
             R.id.action_exit_app -> {
-                UiHelper.showExitConfirmationDialog(this) {
-                    shutdownApp()
-                }
+                UiHelper.showExitConfirmationDialog(this) { shutdownApp() }
                 true
             }
             R.id.action_show_map -> {
-                val dialog = MapDialogFragment()
-                dialog.show(supportFragmentManager, "MapDialog")
+                MapDialogFragment().show(supportFragmentManager, "MapDialog")
                 true
             }
             R.id.action_weather -> {
@@ -213,17 +230,15 @@ class MainActivity : AppCompatActivity() {
 
     private fun fetchAndShowWeather() {
         val fused = LocationServices.getFusedLocationProviderClient(this)
-        fused.lastLocation.addOnSuccessListener { location ->
-            if (location != null) {
-                lifecycleScope.launch {
-                    weatherManager.showWeatherDialog(this@MainActivity)
+        fused.lastLocation
+            .addOnSuccessListener { location ->
+                if (location != null) {
+                    lifecycleScope.launch { weatherManager.showWeatherDialog(this@MainActivity) }
+                } else {
+                    showLocationErrorDialog("Locatie kon niet worden bepaald.")
                 }
-            } else {
-                showLocationErrorDialog("Locatie kon niet worden bepaald.")
             }
-        }.addOnFailureListener {
-            showLocationErrorDialog("Fout bij ophalen van de locatie.")
-        }
+            .addOnFailureListener { showLocationErrorDialog("Fout bij ophalen van de locatie.") }
     }
 
     private fun showLocationErrorDialog(message: String) {
@@ -237,7 +252,6 @@ class MainActivity : AppCompatActivity() {
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         val navHost = supportFragmentManager.findFragmentById(R.id.nav_host_fragment) as? NavHostFragment
         val currentFragment = navHost?.childFragmentManager?.fragments?.firstOrNull()
-
         if (keyCode == KeyEvent.KEYCODE_VOLUME_UP && currentFragment is com.yvesds.voicetally3.ui.tally.TallyFragment) {
             currentFragment.triggerSpeechRecognition()
             return true
@@ -256,7 +270,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showResultsDialog() {
-        // Toon het resultatenvenster rechtstreeks vanuit de Activity.
         ResultsDialogFragment().show(supportFragmentManager, "ResultsDialog")
     }
 
@@ -266,16 +279,15 @@ class MainActivity : AppCompatActivity() {
         try {
             val locationService = getSystemService(Context.LOCATION_SERVICE)
             if (locationService is android.location.LocationManager) {
-                locationService.removeUpdates {}
+                // geen actieve listeners hier; placeholder try/catch blijft defensief
             }
         } catch (e: Exception) {
             Log.w(TAG, "⚠️ Fout bij stoppen van GPS-updates: ${e.message}")
         }
-
         try {
             cacheDir.deleteRecursively()
         } catch (e: Exception) {
-            Log.e("MainActivity", "⚠️ Fout bij cache opruimen", e)
+            Log.e(TAG, "⚠️ Fout bij cache opruimen", e)
         }
         finishAffinity()
         exitProcess(0)

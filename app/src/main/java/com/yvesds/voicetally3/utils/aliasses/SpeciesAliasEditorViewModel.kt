@@ -1,49 +1,52 @@
 package com.yvesds.voicetally3.utils.aliasses
 
-import android.app.Application
-import androidx.lifecycle.*
-import com.yvesds.voicetally3.managers.StorageManager
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.MutableLiveData
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.yvesds.voicetally3.data.AliasRepository
+import com.yvesds.voicetally3.data.SpeciesCacheManager
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
-import com.yvesds.voicetally3.data.CSVManager
+import javax.inject.Named
 
+/**
+ * Bewerken van de aliassen voor één specifieke soort.
+ * - Gebruikt AliasRepository i.p.v. rechtstreeks CSVManager (duidelijkere laag).
+ * - Invalidate caches na opslaan.
+ */
 @HiltViewModel
 class SpeciesAliasEditorViewModel @Inject constructor(
-    application: Application,
-    private val csvManager: CSVManager,
-    private val storageManager: StorageManager
-) : AndroidViewModel(application) {
+    private val aliasRepository: AliasRepository,
+    private val speciesCacheManager: SpeciesCacheManager,
+    @Named("IO") private val ioDispatcher: CoroutineDispatcher
+) : ViewModel() {
 
     private val _aliases = MutableLiveData<List<String>>()
     val aliases: LiveData<List<String>> = _aliases
 
-    /**
-     * 🚀 Laad aliassen van een specifieke soort uit diens eigen CSV-bestand.
-     * Bestand: assets/[soortnaam].csv
-     */
+    /** Laad aliassen van een specifieke soort uit assets/<soort>.csv */
     fun loadAliases(speciesName: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val fileName = "${speciesName.trim().lowercase()}.csv"
-            val rawLines = csvManager.readCsv("assets", fileName)
-
-            val aliases = rawLines.flatten()
-                .map { it.trim() }
-                .filter { it.isNotEmpty() }
-
-            _aliases.postValue(aliases)
+        viewModelScope.launch {
+            val list = withContext(ioDispatcher) {
+                aliasRepository.loadAliasesForSpeciesSuspend(speciesName)
+            }
+            _aliases.value = list
         }
     }
 
-    /**
-     * 💾 Sla aliassen op in eigen CSV-bestand van de soort
-     */
+    /** Sla aliassen op in assets/<soort>.csv en invalideer caches */
     fun saveAliases(speciesName: String, newAliases: List<String>) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val fileName = "${speciesName.trim().lowercase()}.csv"
-            val content = newAliases.joinToString(";")
-            csvManager.writeCsv("assets/$fileName", content)
+        viewModelScope.launch {
+            withContext(ioDispatcher) {
+                aliasRepository.saveAliasesForSpeciesSuspend(speciesName, newAliases)
+                speciesCacheManager.invalidate()
+            }
+            // UI-best bevestiging kan in Fragment gebeuren; hier eventueel herladen:
+            loadAliases(speciesName)
         }
     }
 }

@@ -1,8 +1,9 @@
 package com.yvesds.voicetally3.utils.aliasses
 
 import android.os.Bundle
-import android.util.DisplayMetrics
-import android.view.*
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
 import android.widget.Toast
 import androidx.core.os.bundleOf
 import androidx.fragment.app.Fragment
@@ -19,11 +20,13 @@ class AliasEditorFragment : Fragment() {
 
     private var _binding: FragmentAliasEditorBinding? = null
     private val binding get() = _binding!!
+
     private val viewModel: AliasEditorViewModel by viewModels()
     private lateinit var adapter: SimpleSpeciesListAdapter
 
     override fun onCreateView(
-        inflater: LayoutInflater, container: ViewGroup?,
+        inflater: LayoutInflater,
+        container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
         _binding = FragmentAliasEditorBinding.inflate(inflater, container, false)
@@ -47,7 +50,7 @@ class AliasEditorFragment : Fragment() {
             adapter = this@AliasEditorFragment.adapter
         }
 
-        // 📡 Observers
+        // Observers
         viewModel.speciesList.observe(viewLifecycleOwner) { list ->
             adapter.updateData(list)
         }
@@ -86,9 +89,8 @@ class AliasEditorFragment : Fragment() {
     }
 
     private fun getSpanCount(): Int {
-        val metrics = DisplayMetrics()
-        requireActivity().windowManager.defaultDisplay.getMetrics(metrics)
-        val dpWidth = metrics.widthPixels / metrics.density
+        val dm = resources.displayMetrics
+        val dpWidth = dm.widthPixels / dm.density
         return if (dpWidth >= 600) 2 else 1 // 2 kolommen voor tablets
     }
 

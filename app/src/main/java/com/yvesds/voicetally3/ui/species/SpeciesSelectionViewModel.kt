@@ -4,14 +4,22 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yvesds.voicetally3.data.SpeciesCacheManager
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
+import javax.inject.Named
 
+/**
+ * VM voor het selectiescherm: beheert de volledige lijst en de huidige selectie.
+ * - Laadt soortenlijst **off-main** via SpeciesCacheManager (suspend).
+ */
 @HiltViewModel
 class SpeciesSelectionViewModel @Inject constructor(
-    private val speciesCacheManager: SpeciesCacheManager
+    private val speciesCacheManager: SpeciesCacheManager,
+    @Named("IO") private val ioDispatcher: CoroutineDispatcher
 ) : ViewModel() {
 
     private val _speciesList = MutableStateFlow<List<String>>(emptyList())
@@ -22,7 +30,7 @@ class SpeciesSelectionViewModel @Inject constructor(
 
     fun loadSpecies() {
         viewModelScope.launch {
-            val list = speciesCacheManager.getSpeciesList()
+            val list = withContext(ioDispatcher) { speciesCacheManager.getSpeciesListSuspend() }
             _speciesList.value = list
         }
     }

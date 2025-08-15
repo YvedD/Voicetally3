@@ -14,11 +14,23 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import javax.inject.Named
 import javax.inject.Singleton
 
 @Module
 @InstallIn(SingletonComponent::class)
 object AppModule {
+
+    // Dispatchers expliciet en injecteerbaar
+    @Provides
+    @Singleton
+    @Named("Default")
+    fun provideDefaultDispatcher(): CoroutineDispatcher = Dispatchers.Default
+
+    @Provides
+    @Singleton
+    @Named("IO")
+    fun provideIODispatcher(): CoroutineDispatcher = Dispatchers.IO
 
     @Provides
     @Singleton
@@ -30,16 +42,18 @@ object AppModule {
     @Singleton
     fun provideStorageManager(
         @ApplicationContext context: Context,
-        sharedPrefsHelper: SharedPrefsHelper
-    ): StorageManager = StorageManager(context, sharedPrefsHelper)
+        sharedPrefsHelper: SharedPrefsHelper,
+        @Named("IO") io: CoroutineDispatcher
+    ): StorageManager = StorageManager(context, sharedPrefsHelper, io)
 
     @Provides
     @Singleton
     fun provideCSVManager(
         @ApplicationContext context: Context,
         sharedPrefsHelper: SharedPrefsHelper,
-        storageManager: StorageManager
-    ): CSVManager = CSVManager(context, sharedPrefsHelper, storageManager)
+        storageManager: StorageManager,
+        @Named("IO") io: CoroutineDispatcher
+    ): CSVManager = CSVManager(context, sharedPrefsHelper, storageManager, io)
 
     @Provides
     @Singleton
@@ -55,21 +69,10 @@ object AppModule {
         sharedPrefsHelper: SharedPrefsHelper
     ): SpeciesCacheManager = SpeciesCacheManager(aliasRepository, sharedPrefsHelper)
 
-    /**
-     * Dispatcher voor parsing-werk (CPU-bound).
-     * We gebruiken Default zodat UI nooit geblokkeerd raakt.
-     */
-    @Provides
-    @Singleton
-    fun provideParsingDispatcher(): CoroutineDispatcher = Dispatchers.Default
-
-    /**
-     * UseCase zonder vaste alias-map in de constructor.
-     * De alias-map wordt per aanroep (execute) doorgegeven.
-     */
+    /** Dispatcher voor parsing-werk (CPU-bound). */
     @Provides
     @Singleton
     fun provideSpeechParsingUseCase(
-        dispatcher: CoroutineDispatcher
+        @Named("Default") dispatcher: CoroutineDispatcher
     ): SpeechParsingUseCase = SpeechParsingUseCase(dispatcher)
 }

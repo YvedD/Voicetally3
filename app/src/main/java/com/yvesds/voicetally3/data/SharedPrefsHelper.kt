@@ -34,6 +34,7 @@ class SharedPrefsHelper @Inject constructor(
         Log.d("SharedPrefsHelper", "✅ getBoolean: $key = $value")
         return value
     }
+
     fun setDouble(key: String, value: Double) {
         prefs.edit().putString(key, value.toString()).apply()
     }
@@ -47,13 +48,6 @@ class SharedPrefsHelper @Inject constructor(
         prefs.edit().putString("email_list", jsonArray.toString()).apply()
         Log.d("SharedPrefsHelper", "✅ Email list opgeslagen: $emails")
     }
-    fun isPerHourEnabled(): Boolean {
-        return getBoolean("per_hour_enabled", false)
-    }
-
-    fun setPerHourEnabled(enabled: Boolean) {
-        setBoolean("per_hour_enabled", enabled)
-    }
 
     fun getEmailList(): List<String> {
         val json = prefs.getString("email_list", null) ?: return emptyList()
@@ -66,4 +60,7 @@ class SharedPrefsHelper @Inject constructor(
             emptyList()
         }
     }
+
+    fun isPerHourEnabled(): Boolean = getBoolean("per_hour_enabled", false)
+    fun setPerHourEnabled(enabled: Boolean) = setBoolean("per_hour_enabled", enabled)
 }

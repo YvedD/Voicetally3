@@ -29,7 +29,8 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
         super.onViewCreated(view, savedInstanceState)
         _binding = FragmentSettingsBinding.bind(view)
 
-        val currentLanguage = sharedPrefsHelper.getString(SettingsKeys.SPEECH_INPUT_LANGUAGE, "nl-BE") ?: "nl-BE"
+        val currentLanguage =
+            sharedPrefsHelper.getString(SettingsKeys.SPEECH_INPUT_LANGUAGE, "nl-BE") ?: "nl-BE"
 
         val settingsItems = listOf(
             SettingItem(
@@ -67,15 +68,13 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
                 isChecked = sharedPrefsHelper.getBoolean(SettingsKeys.LOG_PARSED_BLOCKS, true),
                 type = SettingType.SWITCH
             ),
-/*
-            SettingItem(
+            /* SettingItem(
                 key = SettingsKeys.LOG_WARNINGS,
                 title = "Toon waarschuwingen",
                 description = "Toon waarschuwingen zoals duplicaten of niet-geselecteerde soorten",
                 isChecked = sharedPrefsHelper.getBoolean(SettingsKeys.LOG_WARNINGS, true),
                 type = SettingType.SWITCH
-            ),
-*/
+            ), */
             SettingItem(
                 key = SettingsKeys.LOG_ERRORS,
                 title = "Toon fouten",

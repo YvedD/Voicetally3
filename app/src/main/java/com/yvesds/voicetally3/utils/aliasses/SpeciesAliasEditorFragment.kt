@@ -21,7 +21,8 @@ class SpeciesAliasEditorFragment : Fragment() {
     private var speciesName: String? = null
 
     override fun onCreateView(
-        inflater: LayoutInflater, container: ViewGroup?,
+        inflater: LayoutInflater,
+        container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
         binding = FragmentSpeciesAliasEditorBinding.inflate(inflater, container, false)
@@ -40,11 +41,11 @@ class SpeciesAliasEditorFragment : Fragment() {
 
         binding.textSpeciesName.text = "Aliassen voor: $speciesName"
 
-        // 🧱 Grid layout: 1 kolom op telefoon, 2 op tablet
+        // Grid layout: 1 kolom op telefoon, 2 op tablet
         val spanCount = if (resources.configuration.smallestScreenWidthDp >= 600) 2 else 1
         binding.recyclerViewAliases.layoutManager = GridLayoutManager(requireContext(), spanCount)
 
-        // 🔁 Laad data
+        // Laad data
         viewModel.loadAliases(speciesName!!)
         viewModel.aliases.observe(viewLifecycleOwner) { aliases ->
             val paddedList = aliases.toMutableList()
@@ -53,7 +54,7 @@ class SpeciesAliasEditorFragment : Fragment() {
             binding.recyclerViewAliases.adapter = adapter
         }
 
-        // 💾 Opslaan
+        // Opslaan
         binding.buttonSave.setOnClickListener {
             val updated = adapter?.getUpdatedAliases()
                 ?.map { it.trim() }

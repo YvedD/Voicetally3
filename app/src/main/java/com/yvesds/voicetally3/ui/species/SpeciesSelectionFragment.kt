@@ -5,7 +5,9 @@ import android.view.View
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import androidx.fragment.app.viewModels
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.GridLayoutManager
 import com.yvesds.voicetally3.R
@@ -13,11 +15,8 @@ import com.yvesds.voicetally3.databinding.FragmentSpeciesSelectionBinding
 import com.yvesds.voicetally3.ui.shared.SharedSpeciesViewModel
 import com.yvesds.voicetally3.utils.UiHelper
 import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.launch
-import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.flow.collectLatest
-import androidx.lifecycle.Lifecycle
-
+import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
 class SpeciesSelectionFragment : Fragment(R.layout.fragment_species_selection) {
@@ -47,7 +46,7 @@ class SpeciesSelectionFragment : Fragment(R.layout.fragment_species_selection) {
                 launch {
                     viewModel.speciesList.collectLatest { list ->
                         adapter.submitList(list)
-                        UiHelper.showSnackbar(requireView(), "📄 ${list.size} soorten geladen")
+                        UiHelper.showSnackbar(requireView(), " ${list.size} soorten geladen")
                     }
                 }
                 launch {
@@ -66,17 +65,14 @@ class SpeciesSelectionFragment : Fragment(R.layout.fragment_species_selection) {
         binding.buttonConfirmSelection.setOnClickListener {
             val selected = viewModel.selectedSpecies.value
             sharedSpeciesViewModel.setSelectedSpecies(selected)
-
             // ✅ Starttijd registreren bij nieuwe selectie
             sharedSpeciesViewModel.setSessionStart(System.currentTimeMillis())
-
             UiHelper.showSnackbar(requireView(), "✅ Geselecteerd: ${selected.joinToString()}")
             findNavController().navigate(R.id.action_speciesSelectionFragment_to_tallyFragment)
         }
 
         viewModel.loadSpecies()
     }
-
 
     private fun calculateSpanCount(): Int {
         val displayMetrics = resources.displayMetrics
