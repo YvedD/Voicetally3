@@ -9,10 +9,11 @@ import android.speech.SpeechRecognizer
 import android.util.Log
 
 /**
- * Hulpklaase voor het werken met de Android SpeechRecognizer API.
+ * Helper rond de Android SpeechRecognizer API.
  *
  * - Vereenvoudigt instellen en starten/stoppen van spraakherkenning.
- * - Verzorgt lifecycle-beheer en callbacks naar de UI.
+ * - Zorgt voor lifecycle-veilige initialisatie (applicationContext).
+ * - Backwards compatible: startListening() zonder argument blijft NL als default gebruiken.
  */
 class SpeechRecognitionHelper(
     context: Context,
@@ -25,88 +26,55 @@ class SpeechRecognitionHelper(
         SpeechRecognizer.createSpeechRecognizer(context.applicationContext)
 
     private val recognitionListener = object : RecognitionListener {
-        override fun onReadyForSpeech(params: Bundle?) {
-            Log.d(TAG, "Ready for speech")
-        }
-
-        override fun onBeginningOfSpeech() {
-            Log.d(TAG, "Speech started")
-        }
-
-        override fun onRmsChanged(rmsdB: Float) {
-            // Kan gebruikt worden voor VU-meter visualisatie
-        }
-
-        override fun onBufferReceived(buffer: ByteArray?) {
-            // Niet gebruikt
-        }
-
-        override fun onEndOfSpeech() {
-            Log.d(TAG, "Speech ended")
-        }
-
+        override fun onReadyForSpeech(params: Bundle?) { Log.d(TAG, "Ready for speech") }
+        override fun onBeginningOfSpeech() { Log.d(TAG, "Speech started") }
+        override fun onRmsChanged(rmsdB: Float) { /* VU-meter mogelijk */ }
+        override fun onBufferReceived(buffer: ByteArray?) { /* Niet gebruikt */ }
+        override fun onEndOfSpeech() { Log.d(TAG, "Speech ended") }
         override fun onError(errorCode: Int) {
             val explanation = getSpeechErrorExplanation(errorCode)
             Log.w(TAG, "Speech recognition error: $explanation")
             onError(explanation)
         }
-
         override fun onResults(results: Bundle?) {
-            val matches = results
-                ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                .orEmpty()
-            if (matches.isNotEmpty()) {
-                onFinalResult(matches.first())
-            }
+            val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty()
+            if (matches.isNotEmpty()) onFinalResult(matches.first())
         }
-
         override fun onPartialResults(partialResults: Bundle?) {
-            val partials = partialResults
-                ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                .orEmpty()
-            if (partials.isNotEmpty()) {
-                onPartialResult(partials.first())
-            }
+            val partials = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty()
+            if (partials.isNotEmpty()) onPartialResult(partials.first())
         }
-
-        override fun onEvent(eventType: Int, params: Bundle?) {
-            // Niet gebruikt
-        }
+        override fun onEvent(eventType: Int, params: Bundle?) { /* Niet gebruikt */ }
     }
 
     init {
         speechRecognizer.setRecognitionListener(recognitionListener)
     }
 
-    /**
-     * Start spraakherkenning met Nederlands als taal.
-     */
-    fun startListening() {
+    /** Start spraakherkenning met standaardtaal (NL). */
+    fun startListening() = startListening("nl-NL")
+
+    /** Start spraakherkenning met expliciete taalcode. Voorbeeld: "nl-BE", "en-US". */
+    fun startListening(languageCode: String) {
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "nl-NL")
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, languageCode)
         }
         speechRecognizer.startListening(intent)
     }
 
-    /**
-     * Stop huidige spraakherkenningssessie.
-     */
+    /** Stop huidige spraakherkenningssessie. */
     fun stopListening() {
         speechRecognizer.stopListening()
     }
 
-    /**
-     * Ruim resources op. Aanroepen bij onDestroy van je Activity/Fragment.
-     */
+    /** Ruim resources op. Aanroepen in onDestroyView/onDestroy. */
     fun destroy() {
         speechRecognizer.destroy()
     }
 
-    /**
-     * Vertaal foutcodes naar leesbare uitleg voor logging/gebruikersfeedback.
-     */
+    /** Vertaal foutcodes naar leesbare uitleg voor logging/gebruikersfeedback. */
     fun getSpeechErrorExplanation(errorCode: Int): String {
         return when (errorCode) {
             SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "ERROR_NETWORK_TIMEOUT [Netwerk time-out]"

@@ -24,7 +24,7 @@ class StorageManager @Inject constructor(
         private const val KEY_SAF_URI = "saf_uri"
     }
 
-    /** Haal de root VoiceTally folder op vanuit de bewaarde SAF URI. */
+    /** Haal de root VoiceTally folder op vanuit een SAF URI string */
     fun getVoiceTallyRoot(): DocumentFile? {
         val safUriString = sharedPrefsHelper.getString(KEY_SAF_URI)
         if (safUriString == null) {
@@ -48,7 +48,7 @@ class StorageManager @Inject constructor(
         return voiceTallyFolder
     }
 
-    /** Haal of maak een subfolder binnen VoiceTally aan. */
+    /** Haal of maak een subfolder binnen VoiceTally aan */
     fun getOrCreateSubfolder(parent: DocumentFile?, name: String): DocumentFile? {
         if (parent == null) return null
         val existing = parent.findFile(name)
@@ -61,7 +61,7 @@ class StorageManager @Inject constructor(
         }
     }
 
-    /** ✅ Zorg dat de mappenstructuur (VoiceTally/assets/exports + soorten.csv) bestaat. */
+    /** ✅ Zorg dat de mappenstructuur (VoiceTally/assets/exports + soorten.csv) bestaat */
     fun ensureVoiceTallyStructure(): Boolean {
         val safUriString = sharedPrefsHelper.getString(KEY_SAF_URI)
         val safUri = safUriString?.let { Uri.parse(it) }
@@ -95,21 +95,23 @@ class StorageManager @Inject constructor(
         return true
     }
 
-    /** Suspend-variant van ensureVoiceTallyStructure(). */
+    /** Suspend-variant voor off-main initialisatie. */
     suspend fun ensureVoiceTallyStructureSuspend(): Boolean = withContext(ioDispatcher) {
         ensureVoiceTallyStructure()
     }
 
-    /** Haal een bestand op binnen een opgegeven folder. */
+    /** Haal een bestand op binnen een opgegeven folder */
     fun getFile(folder: DocumentFile?, fileName: String): DocumentFile? {
         if (folder == null) return null
         return folder.findFile(fileName)
     }
 
-    /** Overload voor root vanuit een Uri (indien nodig). */
-    fun getVoiceTallyRoot(uri: Uri): DocumentFile? = DocumentFile.fromTreeUri(context, uri)
+    /** Overload voor root vanuit een Uri (meestal onnodig) */
+    fun getVoiceTallyRoot(uri: Uri): DocumentFile? {
+        return DocumentFile.fromTreeUri(context, uri)
+    }
 
-    /** Maak/overschrijf een bestand binnen een folder. */
+    /** Maak of overschrijf een bestand binnen een folder */
     fun createFile(folder: DocumentFile?, mimeType: String, fileName: String): DocumentFile? {
         if (folder == null) return null
         val existing = folder.findFile(fileName)

@@ -41,6 +41,7 @@ class MapDialogFragment : DialogFragment() {
             requireContext(),
             androidx.preference.PreferenceManager.getDefaultSharedPreferences(requireContext())
         )
+
         val map = binding.mapView
         map.setTileSource(TileSourceFactory.MAPNIK)
         map.setMultiTouchControls(true)
@@ -69,11 +70,9 @@ class MapDialogFragment : DialogFragment() {
                 val lat = location?.latitude ?: 0.0
                 val lon = location?.longitude ?: 0.0
                 val geoPoint = GeoPoint(lat, lon)
-
                 val map = binding.mapView
                 map.controller.setZoom(18.0)
                 map.controller.setCenter(geoPoint)
-
                 val marker = Marker(map).apply {
                     position = geoPoint
                     setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
@@ -103,6 +102,9 @@ class MapDialogFragment : DialogFragment() {
 
     override fun onStart() {
         super.onStart()
-        dialog?.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        dialog?.window?.setLayout(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
     }
 }

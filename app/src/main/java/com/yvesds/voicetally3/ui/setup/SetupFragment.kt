@@ -13,10 +13,11 @@ import com.yvesds.voicetally3.data.SharedPrefsHelper
 import com.yvesds.voicetally3.databinding.FragmentSetupBinding
 import com.yvesds.voicetally3.utils.UiHelper
 import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
+import javax.inject.Named
 
 /**
  * ✅ SetupFragment: regelt éénmalige rootmap keuze en persistente SAF-permissie.
@@ -29,29 +30,33 @@ class SetupFragment : Fragment(R.layout.fragment_setup) {
 
     @Inject lateinit var sharedPrefsHelper: SharedPrefsHelper
     @Inject lateinit var csvManager: CSVManager
+    @Inject @Named("IO") lateinit var ioDispatcher: CoroutineDispatcher
 
-    private val requestRootFolder = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        if (uri != null) {
-            requireContext().contentResolver.takePersistableUriPermission(
-                uri,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-            )
-            sharedPrefsHelper.setString(KEY_SAF_URI, uri.toString())
-
-            // ⚙️ Structuur opbouwen off-main
-            viewLifecycleOwner.lifecycleScope.launch {
-                val result = withContext(Dispatchers.IO) { csvManager.ensureInitialStructure() }
-                UiHelper.showSnackbar(
-                    requireView(),
-                    if (result) "✅ Structuur OK!" else "⚠️ Structuur niet aangemaakt!"
+    private val requestRootFolder =
+        registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+            if (uri != null) {
+                requireContext().contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                 )
-                sharedPrefsHelper.setBoolean(KEY_SETUP_DONE, true)
-                findNavController().navigate(R.id.action_setupFragment_to_mainFragment)
+                sharedPrefsHelper.setString(KEY_SAF_URI, uri.toString())
+
+                // ⚙️ Structuur opbouwen off-main
+                viewLifecycleOwner.lifecycleScope.launch {
+                    val result = withContext(ioDispatcher) {
+                        csvManager.ensureInitialStructure()
+                    }
+                    UiHelper.showSnackbar(
+                        requireView(),
+                        if (result) "✅ Structuur OK!" else "⚠️ Structuur niet aangemaakt!"
+                    )
+                    sharedPrefsHelper.setBoolean(KEY_SETUP_DONE, true)
+                    findNavController().navigate(R.id.action_setupFragment_to_mainFragment)
+                }
+            } else {
+                UiHelper.showSnackbar(requireView(), "❌ Geen map geselecteerd.")
             }
-        } else {
-            UiHelper.showSnackbar(requireView(), "❌ Geen map geselecteerd.")
         }
-    }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -64,7 +69,9 @@ class SetupFragment : Fragment(R.layout.fragment_setup) {
             return
         }
 
-        binding.buttonChooseFolder.setOnClickListener { requestRootFolder.launch(null) }
+        binding.buttonChooseFolder.setOnClickListener {
+            requestRootFolder.launch(null)
+        }
     }
 
     override fun onDestroyView() {

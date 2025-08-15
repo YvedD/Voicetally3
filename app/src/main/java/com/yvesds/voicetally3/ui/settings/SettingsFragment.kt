@@ -68,13 +68,15 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
                 isChecked = sharedPrefsHelper.getBoolean(SettingsKeys.LOG_PARSED_BLOCKS, true),
                 type = SettingType.SWITCH
             ),
-            /* SettingItem(
+            /*
+            SettingItem(
                 key = SettingsKeys.LOG_WARNINGS,
                 title = "Toon waarschuwingen",
                 description = "Toon waarschuwingen zoals duplicaten of niet-geselecteerde soorten",
                 isChecked = sharedPrefsHelper.getBoolean(SettingsKeys.LOG_WARNINGS, true),
                 type = SettingType.SWITCH
-            ), */
+            ),
+            */
             SettingItem(
                 key = SettingsKeys.LOG_ERRORS,
                 title = "Toon fouten",

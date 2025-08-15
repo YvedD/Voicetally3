@@ -26,45 +26,46 @@ class SpeechListeningDialogFragment : DialogFragment() {
     private var _binding: DialogSpeechListeningBinding? = null
     private val binding get() = _binding!!
 
-    private val sharedSpeciesViewModel: SharedSpeciesViewModel by activityViewModels()
-    private lateinit var logAdapter: SpeechLogAdapter
+    private val sharedVM: SharedSpeciesViewModel by activityViewModels()
+    private lateinit var adapter: SpeechLogAdapter
 
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
         val dialog = Dialog(requireContext())
-        _binding = DialogSpeechListeningBinding.inflate(layoutInflater)
-        dialog.setContentView(binding.root)
-
         dialog.window?.setLayout(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.WRAP_CONTENT
         )
-
-        setupRecyclerView()
-        observeLogs()
-
         return dialog
     }
 
-    private fun setupRecyclerView() {
-        logAdapter = SpeechLogAdapter()
-        binding.recyclerViewLogs.apply {
-            setHasFixedSize(true)
-            layoutManager = LinearLayoutManager(requireContext())
-            adapter = logAdapter
-        }
+    override fun onStart() {
+        super.onStart()
+        // Full width
+        dialog?.window?.setLayout(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.WRAP_CONTENT
+        )
     }
 
-    private fun observeLogs() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        _binding = DialogSpeechListeningBinding.inflate(layoutInflater)
+        dialog?.setContentView(binding.root)
+
+        adapter = SpeechLogAdapter()
+        binding.recyclerViewLogs.layoutManager = LinearLayoutManager(requireContext())
+        binding.recyclerViewLogs.adapter = adapter
+
         viewLifecycleOwner.lifecycleScope.launch {
-            sharedSpeciesViewModel.speechLogs.collectLatest { logs ->
-                logAdapter.setLogs(logs)
+            sharedVM.speechLogs.collectLatest { logs ->
+                adapter.setLogs(logs)
                 binding.recyclerViewLogs.scrollToPosition(0)
             }
         }
     }
 
-    override fun onDestroyView() {
-        super.onDestroyView()
+    override fun onDestroy() {
+        super.onDestroy()
         _binding = null
     }
 }

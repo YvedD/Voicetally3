@@ -4,42 +4,57 @@ import android.Manifest
 import android.app.Activity
 import android.content.Context
 import android.content.pm.PackageManager
+import android.os.Build
 import androidx.activity.result.ActivityResultLauncher
-import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 
+/**
+ * Moderne permissiebeheerder:
+ * - Geen verouderde storage-permissies (SAF wordt gebruikt).
+ * - Bluetooth permissies volgens Android-versie.
+ * - Fine location blijft nodig voor BLE scan en GPS.
+ */
 object PermissionsManager {
 
-    private val REQUIRED_PERMISSIONS = arrayOf(
-        Manifest.permission.RECORD_AUDIO,
-        Manifest.permission.WRITE_EXTERNAL_STORAGE,
-        Manifest.permission.READ_EXTERNAL_STORAGE,
-        Manifest.permission.BLUETOOTH,
-        Manifest.permission.BLUETOOTH_ADMIN,
-        Manifest.permission.BLUETOOTH_CONNECT,
-        Manifest.permission.BLUETOOTH_SCAN,
-        Manifest.permission.ACCESS_FINE_LOCATION
-    )
+    private fun requiredPermissions(): Array<String> {
+        val perms = mutableListOf(
+            Manifest.permission.RECORD_AUDIO,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        )
 
-    /**
-     * ✅ Controleer of alle vereiste permissies verleend zijn.
-     */
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            // Android 12+ (API 31): nieuwe Bluetooth-permissies
+            perms += Manifest.permission.BLUETOOTH_CONNECT
+            perms += Manifest.permission.BLUETOOTH_SCAN
+        } else {
+            // Oudere toestellen
+            @Suppress("DEPRECATION")
+            perms += Manifest.permission.BLUETOOTH
+            @Suppress("DEPRECATION")
+            perms += Manifest.permission.BLUETOOTH_ADMIN
+        }
+
+        return perms.toTypedArray()
+    }
+
+    /** ✅ Controleer of alle vereiste permissies verleend zijn. */
     fun allPermissionsGranted(context: Context): Boolean {
-        return REQUIRED_PERMISSIONS.all { permission ->
-            ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+        val all = requiredPermissions()
+        return all.all { p ->
+            ContextCompat.checkSelfPermission(context, p) == PackageManager.PERMISSION_GRANTED
         }
     }
 
-    /**
-     * ✅ Vraag alle vereiste permissies op een moderne manier.
-     */
-    fun requestPermissions(activity: Activity, launcher: ActivityResultLauncher<Array<String>>) {
-        val permissionsToRequest = REQUIRED_PERMISSIONS.filter { permission ->
-            ContextCompat.checkSelfPermission(activity, permission) != PackageManager.PERMISSION_GRANTED
-        }.toTypedArray()
-
-        if (permissionsToRequest.isNotEmpty()) {
-            launcher.launch(permissionsToRequest)
+    /** ✅ Vraag alle vereiste permissies via de meegegeven launcher. */
+    fun requestPermissions(
+        activity: Activity,
+        launcher: ActivityResultLauncher<Array<String>>
+    ) {
+        val toRequest = requiredPermissions().filter { p ->
+            ContextCompat.checkSelfPermission(activity, p) != PackageManager.PERMISSION_GRANTED
+        }
+        if (toRequest.isNotEmpty()) {
+            launcher.launch(toRequest.toTypedArray())
         }
     }
 }

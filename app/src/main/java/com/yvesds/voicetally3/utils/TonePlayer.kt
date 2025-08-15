@@ -11,15 +11,19 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * Bestandsnaam is TonePlayer.kt, maar klasse heet SoundPlayer (zoals elders gebruikt).
+ * - Laadt korte UI-geluiden.
+ * - Respecteert SettingsKeys.ENABLE_EXTRA_SOUNDS.
+ */
 @Singleton
 class SoundPlayer @Inject constructor(
     @ApplicationContext private val context: Context,
     private val sharedPrefsHelper: SharedPrefsHelper
 ) {
-
     private val soundPool: SoundPool
     private val soundMap = mutableMapOf<String, Int>()
-    private var loaded = false
+    @Volatile private var loaded = false
 
     init {
         val audioAttributes = AudioAttributes.Builder()
@@ -48,29 +52,30 @@ class SoundPlayer @Inject constructor(
     }
 
     fun play(tag: String) {
-        // 🔈 Check via instelling of geluiden actief zijn
+        // Check via instelling of geluiden actief zijn
         val enabled = sharedPrefsHelper.getBoolean(SettingsKeys.ENABLE_EXTRA_SOUNDS, true)
         if (!enabled) {
             Log.d("SoundPlayer", "🔇 Sounds disabled by user settings")
             return
         }
-
         if (!loaded) {
             Log.w("SoundPlayer", "⚠️ Sounds not loaded yet")
             return
         }
-
         val soundId = soundMap[tag]
         if (soundId != null) {
             soundPool.play(soundId, 1f, 1f, 1, 0, 1f)
-            Log.d("SoundPlayer", "🔊 Played: $tag")
+            Log.d("SoundPlayer", "▶️ Played: $tag")
         } else {
             Log.e("SoundPlayer", "❌ Sound not found for tag: $tag")
         }
     }
 
     fun release() {
-        soundPool.release()
-        Log.d("SoundPlayer", "🗑️ SoundPool released")
+        try {
+            soundPool.release()
+            Log.d("SoundPlayer", "🧹 SoundPool released")
+        } catch (_: Exception) {
+        }
     }
 }

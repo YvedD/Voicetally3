@@ -13,6 +13,7 @@ import androidx.navigation.fragment.findNavController
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
+import com.google.android.material.snackbar.Snackbar
 import com.yvesds.voicetally3.R
 import com.yvesds.voicetally3.data.CSVManager
 import com.yvesds.voicetally3.data.SharedPrefsHelper
@@ -62,25 +63,34 @@ class MainFragment : Fragment(R.layout.fragment_main) {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         _binding = FragmentMainBinding.bind(view)
-
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(requireActivity())
+
         checkLocationPermissionAndFetch()
 
-        // ✅ SAF status
+        // ✅ SAF status controleren
         val hasSaf = sharedPrefsHelper.getString(KEY_SAF_URI) != null
         updateSafUi(hasSaf)
+
+        if (!hasSaf) {
+            // Geen aparte knop in de layout? Bied een snackbar-actie aan om de map te kiezen.
+            Snackbar.make(requireView(), "SAF rootmap nog niet ingesteld", Snackbar.LENGTH_LONG)
+                .setAction("Kies map") { safLauncher.launch(null) }
+                .show()
+        }
 
         // ✅ Soorten selecteren
         binding.buttonOpenSpeciesSelection.setOnClickListener {
             val safUri = sharedPrefsHelper.getString(KEY_SAF_URI)
             if (safUri.isNullOrEmpty()) {
-                UiHelper.showSnackbar(requireView(), "❌ SAF rootmap niet ingesteld!")
+                Snackbar.make(requireView(), "❌ SAF rootmap niet ingesteld!", Snackbar.LENGTH_LONG)
+                    .setAction("Kies map") { safLauncher.launch(null) }
+                    .show()
             } else {
                 findNavController().navigate(R.id.action_mainFragment_to_speciesSelectionFragment)
             }
         }
 
-        // ✅ Training starten
+        // ✅ Training starten (alias editor)
         binding.buttonTrainSpecies.setOnClickListener {
             findNavController().navigate(R.id.aliasEditorFragment)
         }
@@ -108,13 +118,17 @@ class MainFragment : Fragment(R.layout.fragment_main) {
             }
             .addOnFailureListener {
                 if (_binding != null) {
-                    UiHelper.showSnackbar(requireView(), "❌ Nauwkeurige locatie niet beschikbaar, probeer buiten")
+                    UiHelper.showSnackbar(
+                        requireView(),
+                        "❌ Nauwkeurige locatie niet beschikbaar, probeer buiten"
+                    )
                 }
             }
     }
 
     private fun updateSafUi(hasSaf: Boolean) {
-        binding.textSafStatus.text = if (hasSaf) "SAF Status : OK!" else "SAF Status : NOG NIET IN ORDE"
+        binding.textSafStatus.text =
+            if (hasSaf) "SAF Status : OK!" else "SAF Status : NOG NIET IN ORDE"
     }
 
     override fun onDestroyView() {

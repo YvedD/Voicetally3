@@ -22,7 +22,6 @@ import com.yvesds.voicetally3.ui.shared.SharedSpeciesViewModel
 import com.yvesds.voicetally3.utils.weather.WeatherManager
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.osmdroid.config.Configuration
@@ -145,7 +144,7 @@ class ResultsDialogFragment : DialogFragment() {
             overlays.add(m)
 
             // Long-press/tap verplaatsen
-            val eventsOverlay = MapEventsOverlay(object : MapEventsReceiver {
+            val eventsOverlay = org.osmdroid.views.overlay.MapEventsOverlay(object : MapEventsReceiver {
                 override fun singleTapConfirmedHelper(p: GeoPoint?): Boolean = false
                 override fun longPressHelper(p: GeoPoint?): Boolean {
                     if (p != null) {
@@ -223,14 +222,14 @@ class ResultsDialogFragment : DialogFragment() {
         val currentPos = marker?.position
         val lat = currentPos?.latitude ?: sharedSpeciesViewModel.gpsLocation.value?.first
         val lon = currentPos?.longitude ?: sharedSpeciesViewModel.gpsLocation.value?.second
-
         val timestamp = getTimestamp()
 
         // Screenshot tekenen (UI) en wegschrijven (IO)
         val bitmap = takeScreenshotOfView(view)
         val screenshotUri = withContext(ioDispatcher) { saveScreenshotBitmap(bitmap, timestamp) }
-
-        val uris = withContext(ioDispatcher) { saveCsvAndTxt(tallyMap, lat, lon, weather, timestamp) }.toMutableList()
+        val uris = withContext(ioDispatcher) {
+            saveCsvAndTxt(tallyMap, lat, lon, weather, timestamp)
+        }.toMutableList()
         screenshotUri?.let { uris.add(it) }
 
         if (triggerShare && uris.isNotEmpty()) {
@@ -252,7 +251,6 @@ class ResultsDialogFragment : DialogFragment() {
             SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(it))
         } ?: "?"
         val end = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
-
         val csvContent = buildString {
             append("GPS;Latitude;${lat ?: "NA"};Longitude;${lon ?: "NA"}\n")
             append("Aanvang;$start;Einde;$end\n")
@@ -264,7 +262,7 @@ class ResultsDialogFragment : DialogFragment() {
                 append("Wind;${weather.windspeed} km/u;Beaufort;${weatherManager.toBeaufort(weather.windspeed)};Richting;${weatherManager.toCompass(weather.winddirection)}\n")
                 append("Bewolking;${weatherManager.toOctas(weather.cloudcover)}/8\n")
                 append("Zicht;${weather.visibility} m\n")
-                append("Luchtdruk;${weather.pressure * 100} Pa\n")
+                append("Luchtdruk;${weather.pressure} hPa\n")
                 append("Omschrijving;${weatherManager.getWeatherDescription(weather.weathercode)}\n")
             }
             append("Soortnaam;Aantal\n")
@@ -288,7 +286,7 @@ class ResultsDialogFragment : DialogFragment() {
                 append("Wind: ${weather.windspeed} km/u (${weatherManager.toBeaufort(weather.windspeed)} Bf), ${weatherManager.toCompass(weather.winddirection)}\n")
                 append("Bewolking: ${weatherManager.toOctas(weather.cloudcover)}/8\n")
                 append("Zicht: ${weather.visibility} m\n")
-                append("Luchtdruk: ${weather.pressure * 100} Pa\n")
+                append("Luchtdruk: ${weather.pressure} hPa\n")
                 append("Omschrijving: ${weatherManager.getWeatherDescription(weather.weathercode)}\n")
             }
         }

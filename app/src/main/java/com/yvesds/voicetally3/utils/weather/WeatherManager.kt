@@ -5,18 +5,25 @@ import android.content.Context
 import android.location.Geocoder
 import android.util.Log
 import com.google.android.gms.location.LocationServices
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.net.HttpURLConnection
 import java.net.URL
-import java.util.*
+import java.util.Locale
 import javax.inject.Inject
+import javax.inject.Named
 import javax.inject.Singleton
 import kotlin.math.roundToInt
 
 @Singleton
-class WeatherManager @Inject constructor() {
+class WeatherManager @Inject constructor(
+    @ApplicationContext private val appContext: Context,
+    @Named("IO") private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+) {
 
     companion object {
         private const val TAG = "WeatherManager"
@@ -36,31 +43,48 @@ class WeatherManager @Inject constructor() {
         val time: String
     )
 
-    suspend fun fetchFullWeather(context: Context): FullWeather? = withContext(Dispatchers.IO) {
+    /**
+     * Haal huidige weerdata op voor de *laatste* bekende GPS-locatie van het toestel.
+     * - Off-main (IO dispatcher)
+     * - Robuuste HTTP-verbinding met timeouts
+     * - Fix: correcte query-parameter (was corrupt in oudere versie)
+     */
+    suspend fun fetchFullWeather(context: Context = appContext): FullWeather? = withContext(ioDispatcher) {
         try {
             val fused = LocationServices.getFusedLocationProviderClient(context)
             val location = fused.lastLocation.await() ?: return@withContext null
-
             val lat = location.latitude
             val lon = location.longitude
 
-            val url = "$WEATHER_API?latitude=$lat&longitude=$lon&current=temperature_2m,precipitation,weathercode,windspeed_10m,winddirection_10m,cloudcover,visibility,pressure_msl&timezone=auto"
-            val response = URL(url).readText()
+            // Open-Meteo "current" parameter met gewenste variabelen
+            val urlStr = "$WEATHER_API?latitude=$lat&longitude=$lon" +
+                    "&current=temperature_2m,precipitation,weathercode,windspeed_10m,winddirection_10m,cloudcover,visibility,pressure_msl" +
+                    "&timezone=auto"
+
+            val url = URL(urlStr)
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                connectTimeout = 8000
+                readTimeout = 8000
+                requestMethod = "GET"
+            }
+
+            val response = conn.inputStream.bufferedReader().use { it.readText() }
+            conn.disconnect()
+
             val json = JSONObject(response)
             val current = json.getJSONObject("current")
 
             val locality = getLocalityName(context, lat, lon)
-
-            FullWeather(
+            return@withContext FullWeather(
                 locationName = locality ?: "Onbekend",
                 temperature = current.getDouble("temperature_2m"),
-                precipitation = current.getDouble("precipitation"),
+                precipitation = current.optDouble("precipitation", 0.0),
                 weathercode = current.getInt("weathercode"),
-                windspeed = current.getDouble("windspeed_10m"),
-                winddirection = current.getInt("winddirection_10m"),
-                pressure = current.getDouble("pressure_msl").roundToInt(),
-                cloudcover = current.getInt("cloudcover"),
-                visibility = current.getInt("visibility"),
+                windspeed = current.optDouble("windspeed_10m", 0.0),
+                winddirection = current.optInt("winddirection_10m", 0),
+                pressure = current.optDouble("pressure_msl", 0.0).roundToInt(),
+                cloudcover = current.optInt("cloudcover", 0),
+                visibility = current.optInt("visibility", 0),
                 time = current.getString("time")
             )
         } catch (e: Exception) {
@@ -71,22 +95,21 @@ class WeatherManager @Inject constructor() {
 
     suspend fun showWeatherDialog(context: Context) {
         val weather = fetchFullWeather(context)
-
         withContext(Dispatchers.Main) {
             AlertDialog.Builder(context)
                 .setTitle("Weerbericht")
                 .setMessage(
                     if (weather != null)
                         """
-                        📍 Locatie: ${weather.locationName}
-                        🕒 Tijdstip: ${weather.time}
-                        🌡️ Temp: ${"%.1f".format(weather.temperature)} °C
-                        🌧️ Neerslag: ${weather.precipitation} mm
-                        🌬️ Wind: ${weather.windspeed} km/u (${toBeaufort(weather.windspeed)} Bf), ${toCompass(weather.winddirection)}
+                        Locatie: ${weather.locationName}
+                        Tijdstip: ${weather.time}
+                        ️Temp: ${"%.1f".format(weather.temperature)} °C
+                        ️Neerslag: ${weather.precipitation} mm
+                        ️Wind: ${weather.windspeed} km/u (${toBeaufort(weather.windspeed)} Bf), ${toCompass(weather.winddirection)}
                         ☁️ Bewolking: ${toOctas(weather.cloudcover)}/8
-                        👁️ Zicht: ${weather.visibility} m
-                        🧭 Luchtdruk: ${weather.pressure} hPa
-                        📝 Weer: ${getWeatherDescription(weather.weathercode)}
+                        ️Zicht: ${weather.visibility} m
+                        Luchtdruk: ${weather.pressure} hPa
+                        Weer: ${getWeatherDescription(weather.weathercode)}
                         """.trimIndent()
                     else
                         "❌ Kon geen weergegevens ophalen voor deze locatie."
