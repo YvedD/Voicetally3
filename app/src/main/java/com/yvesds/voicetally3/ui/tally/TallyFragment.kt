@@ -9,6 +9,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.SimpleItemAnimator
 import com.google.android.gms.location.LocationServices
 import com.yvesds.voicetally3.R
 import com.yvesds.voicetally3.databinding.FragmentTallyBinding
@@ -29,6 +30,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Named
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
 
 @AndroidEntryPoint
 class TallyFragment : Fragment(R.layout.fragment_tally) {
@@ -46,11 +50,8 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
     @Inject lateinit var parsingUseCase: SpeechParsingUseCase
     @Inject lateinit var sharedPrefsHelper: SharedPrefsHelper
     @Inject lateinit var soundPlayer: SoundPlayer
-
-    // Inject de CPU-bound dispatcher (aanbevolen i.p.v. hardcoded Dispatchers.Default)
     @Inject @Named("Default") lateinit var defaultDispatcher: CoroutineDispatcher
 
-    /** Laatste FINAL die verwerkt werd, om duplicates te negeren. */
     private var lastFinalProcessed: String? = null
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
@@ -62,6 +63,7 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
         observeLogs()
         setupSpeechHelper()
         setupButtons()
+        applyWindowInsetsWorkaround()
 
         if (sharedSpeciesViewModel.sessionStart.value == null) {
             sharedSpeciesViewModel.setSessionStart(System.currentTimeMillis())
@@ -69,9 +71,18 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
 
         fetchAndStoreLocation()
         showLoggingDebugInfo()
-
-        // Initieel vullen met reeds opgeslagen logs
         logAdapter.setLogs(sharedSpeciesViewModel.speechLogs.value)
+    }
+
+    private fun applyWindowInsetsWorkaround() {
+        val rv = binding.recyclerViewTally
+        val originalBottom = rv.paddingBottom
+        ViewCompat.setOnApplyWindowInsetsListener(rv) { v, insets ->
+            val sys = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.updatePadding(bottom = originalBottom + sys.bottom)
+            insets
+        }
+        rv.requestApplyInsets()
     }
 
     private fun setupRecyclerViews() {
@@ -80,8 +91,25 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
             onDecrement = { species -> sharedSpeciesViewModel.decrement(species) },
             onReset = { species -> sharedSpeciesViewModel.reset(species) }
         )
-        binding.recyclerViewTally.layoutManager = GridLayoutManager(requireContext(), calculateSpanCount())
+
+        val grid = GridLayoutManager(requireContext(), calculateSpanCount())
+        grid.setRecycleChildrenOnDetach(true)
+
+        binding.recyclerViewTally.layoutManager = grid
         binding.recyclerViewTally.adapter = tallyAdapter
+
+        // 🚀 Responsieve updates:
+        binding.recyclerViewTally.setHasFixedSize(true)
+        (binding.recyclerViewTally.itemAnimator as? SimpleItemAnimator)?.supportsChangeAnimations = false
+        binding.recyclerViewTally.itemAnimator?.apply {
+            changeDuration = 0
+            moveDuration = 0
+            addDuration = 0
+            removeDuration = 0
+        }
+        // Cache iets verhogen, minder rebinds bij snel tikken
+        binding.recyclerViewTally.setItemViewCacheSize(32)
+        binding.recyclerViewTally.recycledViewPool.setMaxRecycledViews(0, 64)
 
         logAdapter = SpeechLogAdapter()
         binding.recyclerViewSpeechLog.layoutManager = LinearLayoutManager(requireContext())
@@ -91,12 +119,8 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
     private fun observeTallyMap() {
         viewLifecycleOwner.lifecycleScope.launch {
             sharedSpeciesViewModel.tallyMap.collectLatest { map ->
-                // Gebruik direct de Kotlin Map.Entry items; geen Java SimpleEntry conversie
                 val items: List<Map.Entry<String, Int>> =
-                    map.entries
-                        .sortedBy { it.key }
-                        .toList()
-
+                    map.entries.sortedBy { it.key }.toList()
                 tallyAdapter.submitList(items)
             }
         }
@@ -122,7 +146,7 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
                     val showWarnings = sharedPrefsHelper.getBoolean(SettingsKeys.LOG_WARNINGS, true)
                     addLogLine(
                         LogEntry(
-                            text = "⚠️ Final duplicate ignored",
+                            "⚠️ Final duplicate ignored",
                             showInUi = showWarnings,
                             includeInExport = true,
                             type = LogType.WARNING
@@ -135,13 +159,12 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
                 val showFinals = sharedPrefsHelper.getBoolean(SettingsKeys.LOG_FINALS, true)
                 addLogLine(
                     LogEntry(
-                        text = "✅ Final: $normalized",
+                        "✅ Final: $normalized",
                         showInUi = showFinals,
                         includeInExport = true,
                         type = LogType.FINAL
                     )
                 )
-
                 parseAndUpdateMultiple(normalized)
             },
             onPartialResult = { partial ->
@@ -149,7 +172,7 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
                 val showPartials = sharedPrefsHelper.getBoolean(SettingsKeys.LOG_PARTIALS, true)
                 addLogLine(
                     LogEntry(
-                        text = "  Partial: ${partial.lowercase()}",
+                        "  Partial: ${partial.lowercase()}",
                         showInUi = showPartials,
                         includeInExport = true,
                         type = LogType.PARTIAL
@@ -160,7 +183,7 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
                 val showErrors = sharedPrefsHelper.getBoolean(SettingsKeys.LOG_ERRORS, true)
                 addLogLine(
                     LogEntry(
-                        text = "❌ Fout: $error",
+                        "❌ Fout: $error",
                         showInUi = showErrors,
                         includeInExport = true,
                         type = LogType.ERROR
@@ -181,17 +204,12 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
 
     private fun fetchAndStoreLocation() {
         val fusedLocationClient = LocationServices.getFusedLocationProviderClient(requireActivity())
-        fusedLocationClient.lastLocation
-            .addOnSuccessListener { location ->
-                location?.let {
-                    sharedSpeciesViewModel.setGpsLocation(it.latitude, it.longitude)
-                }
-            }
+        fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+            location?.let { sharedSpeciesViewModel.setGpsLocation(it.latitude, it.longitude) }
+        }
     }
 
-    /** Voeg log toe via ViewModel én update RecyclerView — ALTIJD op main thread aanroepen. */
     private fun addLogLine(entry: LogEntry) {
-        // We zorgen ervoor dat dit altijd op main wordt aangeroepen.
         sharedSpeciesViewModel.addSpeechLog(entry)
         if (entry.showInUi || entry.type == LogType.TALLY_UPDATE || entry.type == LogType.WARNING) {
             logAdapter.addLine(entry)
@@ -199,19 +217,8 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
         }
     }
 
-    private fun addLogLine(
-        text: String,
-        showInUi: Boolean = true,
-        type: LogType = LogType.INFO
-    ) {
-        addLogLine(
-            LogEntry(
-                text = text,
-                showInUi = showInUi,
-                includeInExport = true,
-                type = type
-            )
-        )
+    private fun addLogLine(text: String, showInUi: Boolean = true, type: LogType = LogType.INFO) {
+        addLogLine(LogEntry(text = text, showInUi = showInUi, includeInExport = true, type = type))
     }
 
     private fun showLoggingDebugInfo() {
@@ -235,7 +242,6 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
             ➜ Info: $logInfo
             ➜ Extra Sounds: $enableExtraSounds
         """.trimIndent()
-
         addLogLine(debugInfo, showInUi = logInfo, type = LogType.INFO)
     }
 
@@ -243,16 +249,12 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
         ResultsDialogFragment().show(parentFragmentManager, "ResultsDialog")
     }
 
-    /** Verwerk meerdere (soort, aantal)-paren in één final uiting. */
     private fun parseAndUpdateMultiple(spokenText: String) {
         viewLifecycleOwner.lifecycleScope.launch {
-            // 1) Bouw alias-map (merge actief + fallback)
             val aliasMap: Map<String, String> = buildMap {
                 putAll(sharedSpeciesViewModel.actieveAliasMap.value)
                 putAll(sharedSpeciesViewModel.fallbackAliasMap.value)
             }
-
-            // 2) Parse in background (CPU-bound)
             val results = withContext(defaultDispatcher) {
                 parsingUseCase.executeAll(
                     transcript = spokenText,
@@ -260,7 +262,6 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
                 )
             }
 
-            // 3) Bereid UI-gegevens voor in background (geen UI calls!)
             data class Prepared(
                 val parsedBlockLines: List<LogEntry>,
                 val logLines: List<LogEntry>,
@@ -276,30 +277,12 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
                 val showErrors = sharedPrefsHelper.getBoolean(SettingsKeys.LOG_ERRORS, true)
 
                 if (results.isEmpty()) {
-                    val err = LogEntry(
-                        text = "❌ Geen parse-resultaat",
-                        showInUi = showErrors,
-                        includeInExport = true,
-                        type = LogType.ERROR
-                    )
-                    Prepared(
-                        parsedBlockLines = emptyList(),
-                        logLines = listOf(err),
-                        validUpdates = emptyList(),
-                        pendingAdditions = emptyList()
-                    )
+                    val err = LogEntry("❌ Geen parse-resultaat", showInUi = showErrors, includeInExport = true, type = LogType.ERROR)
+                    Prepared(emptyList(), listOf(err), emptyList(), emptyList())
                 } else {
-                    val parsedBlockLines: List<LogEntry> =
-                        if (showParsedBlocks) {
-                            results.map { r ->
-                                LogEntry(
-                                    text = "  Gevonden: ${r.species} → ${r.count}",
-                                    showInUi = true,
-                                    includeInExport = true,
-                                    type = LogType.PARSED_BLOCK
-                                )
-                            }
-                        } else emptyList()
+                    val parsedBlockLines =
+                        if (showParsedBlocks) results.map { LogEntry("  Gevonden: ${it.species} → ${it.count}", showInUi = true, includeInExport = true, type = LogType.PARSED_BLOCK) }
+                        else emptyList()
 
                     val logLines = mutableListOf<LogEntry>()
                     val validUpdates = mutableListOf<Pair<String, Int>>()
@@ -316,39 +299,18 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
                                 validUpdates.add(species to amount)
                             }
                             allKnownSpecies.contains(species) -> {
-                                logLines.add(
-                                    LogEntry(
-                                        text = "⚠️ $nameFormatted is niet geselecteerd",
-                                        showInUi = showWarnings,
-                                        includeInExport = true,
-                                        type = LogType.WARNING
-                                    )
-                                )
+                                logLines.add(LogEntry("⚠️ $nameFormatted is niet geselecteerd", showInUi = showWarnings, includeInExport = true, type = LogType.WARNING))
                                 pendingAdditions.add(species to amount)
                             }
                             else -> {
-                                logLines.add(
-                                    LogEntry(
-                                        text = "❌ $nameFormatted niet herkend",
-                                        showInUi = showErrors,
-                                        includeInExport = true,
-                                        type = LogType.ERROR
-                                    )
-                                )
+                                logLines.add(LogEntry("❌ $nameFormatted niet herkend", showInUi = showErrors, includeInExport = true, type = LogType.ERROR))
                             }
                         }
                     }
-
-                    Prepared(
-                        parsedBlockLines = parsedBlockLines,
-                        logLines = logLines,
-                        validUpdates = validUpdates,
-                        pendingAdditions = pendingAdditions
-                    )
+                    Prepared(parsedBlockLines, logLines, validUpdates, pendingAdditions)
                 }
             }
 
-            // 4) UITSLUITEND OP MAIN: logs toevoegen, tallies bijwerken, geluiden, dialogen
             prepared.parsedBlockLines.forEach { addLogLine(it) }
             prepared.logLines.forEach { addLogLine(it) }
 
@@ -378,10 +340,12 @@ class TallyFragment : Fragment(R.layout.fragment_tally) {
     }
 
     private fun calculateSpanCount(): Int {
-        val displayMetrics = resources.displayMetrics
-        val screenWidthDp = displayMetrics.widthPixels / displayMetrics.density
-        val desiredColumnWidthDp = 300
-        return (screenWidthDp / desiredColumnWidthDp).toInt().coerceIn(1, 3)
+        // Gebruik dimen (px) i.p.v. hardcoded dp → schaalbaar per device via values-sw600dp
+        val dm = resources.displayMetrics
+        val screenPx = dm.widthPixels.toFloat()
+        val desiredItemPx = resources.getDimension(R.dimen.grid_desired_column_width) // in px
+        val span = (screenPx / desiredItemPx).toInt().coerceAtLeast(1)
+        return span.coerceIn(1, 3) // max 3 kolommen (tablets)
     }
 
     override fun onDestroyView() {

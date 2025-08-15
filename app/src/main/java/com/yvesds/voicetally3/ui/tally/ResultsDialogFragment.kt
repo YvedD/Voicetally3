@@ -255,10 +255,17 @@ class ResultsDialogFragment : DialogFragment() {
         val place = currentPlace ?: currentWeather?.locationName ?: "Onbekend"
         t.append(" Locatie: $place ($latStr, $lonStr)\n\n")
 
-        // Tellingen
+        // Tellingen (alleen > 0 tonen)
         t.append(" Tellingsoverzicht:\n\n")
-        currentTally.entries.sortedBy { it.key }.forEach { entry ->
-            t.append("${entry.key}: ${entry.value}\n")
+        val nonZero = currentTally.filterValues { it > 0 }
+        if (nonZero.isEmpty()) {
+            t.append(" (geen waarnemingen)\n")
+        } else {
+            nonZero.entries
+                .sortedBy { it.key }
+                .forEach { entry ->
+                    t.append("${entry.key}: ${entry.value}\n")
+                }
         }
 
         // Weer (optioneel)
@@ -321,6 +328,8 @@ class ResultsDialogFragment : DialogFragment() {
             SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(it))
         } ?: "?"
         val end = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+
+        // Alleen tellers > 0 naar CSV
         val csvContent = buildString {
             append("GPS;Latitude;${lat ?: "NA"};Longitude;${lon ?: "NA"}\n")
             append("Aanvang;$start;Einde;$end\n")
@@ -336,19 +345,39 @@ class ResultsDialogFragment : DialogFragment() {
                 append("Omschrijving;${weatherManager.getWeatherDescription(w.weathercode)}\n")
             }
             append("Soortnaam;Aantal\n")
-            tallyMap.entries.sortedBy { it.key }.forEach { entry ->
-                append("${entry.key};${entry.value}\n")
-            }
+            tallyMap
+                .filterValues { it > 0 }
+                .toSortedMap()
+                .forEach { (name, count) ->
+                    append("$name;$count\n")
+                }
         }
         val csvUri = saveTextFile(csvFileName, csvContent, "text/csv")
         csvUri?.let { uris.add(it) }
 
+        // TXT-log: ook samenvatting bovenaan zonder 0’s
         val txtFileName = "log_$timestamp.txt"
         val txtContent = buildString {
             append("=== VoiceTally Log $timestamp ===\n\n")
-            // Neem de reeds opgebouwde UI-tekst bovenaan ook mee (locatie + coords)
-            append("Locatie: ${currentPlace ?: "Onbekend"} (${String.format(Locale.US, "%.9f", currentLat ?: 0.0)}, ${String.format(Locale.US, "%.9f", currentLon ?: 0.0)})\n\n")
+            append(
+                "Locatie: ${currentPlace ?: "Onbekend"} (" +
+                        "${String.format(Locale.US, "%.9f", currentLat ?: 0.0)}, " +
+                        "${String.format(Locale.US, "%.9f", currentLon ?: 0.0)})\n\n"
+            )
+
+            append("--- Tellingsoverzicht ---\n")
+            val nonZero = tallyMap.filterValues { it > 0 }
+            if (nonZero.isEmpty()) {
+                append("(geen waarnemingen)\n")
+            } else {
+                nonZero.toSortedMap().forEach { (name, count) ->
+                    append("$name: $count\n")
+                }
+            }
+            append("\n")
+
             append(sharedSpeciesViewModel.exportAllSpeechLogs())
+
             weather?.let { w ->
                 append("\n--- Weerbericht ---\n")
                 append("Locatie: ${currentPlace ?: w.locationName}\n")

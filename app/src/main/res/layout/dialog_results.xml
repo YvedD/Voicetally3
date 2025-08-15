@@ -2,8 +2,7 @@
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/scrollViewResults"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="@android:color/black">
+    android:layout_height="match_parent">
 
     <LinearLayout
         android:id="@+id/layoutResultsDialog"
@@ -13,14 +12,14 @@
         android:padding="16dp">
 
         <TextView
-            style="@style/BorderCardStyle"
             android:id="@+id/txtResults"
+            style="@style/BorderCardStyle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:background="@color/material_dynamic_neutral70"
-            android:textColor="@android:color/black"
             android:text="Resultaten"
-            android:textAppearance="?attr/textAppearanceBody1" />
+            android:textAppearance="?attr/textAppearanceBody1"
+            android:textColor="@android:color/black" />
 
         <org.osmdroid.views.MapView
             android:id="@+id/mapViewResults"
@@ -31,13 +30,13 @@
         <EditText
             android:id="@+id/editTextText"
             style="@style/BorderCardStyle"
-            android:inputType="textMultiLine"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginLeft="12dp"
             android:layout_marginTop="4dp"
             android:layout_marginEnd="12dp"
             android:ems="10"
+            android:inputType="textMultiLine"
             android:singleLine="false"
             android:text="je kan in/uitzoomen op de afbeelding zelf.\n Er word automatisch een screenshot bewaard"
             android:textAlignment="center"
@@ -48,39 +47,41 @@
 
         <Button
             android:id="@+id/btnOpslaanDelenReset"
+            style="@style/Widget.VoiceTally.Button"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginLeft="12dp"
             android:layout_marginTop="4dp"
             android:layout_marginEnd="12dp"
-            android:background="@drawable/border_button"
             android:text="Opslaan, Delen &amp; Reset"
             android:textColor="@android:color/white"
             android:textSize="12sp" />
 
         <Button
             android:id="@+id/btnNieuweSessie"
+            style="@style/Widget.VoiceTally.Button"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginLeft="12dp"
             android:layout_marginTop="4dp"
             android:layout_marginEnd="12dp"
-            android:background="@drawable/border_button"
             android:text="Nieuwe sessie"
             android:textColor="@android:color/white"
             android:textSize="12sp" />
 
+<!--
         <Button
             android:id="@+id/btnEindeTelling"
+            style="@style/Widget.VoiceTally.Button"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginLeft="12dp"
             android:layout_marginTop="4dp"
             android:layout_marginEnd="12dp"
-            android:background="@drawable/border_button"
             android:text="Einde telling"
             android:textColor="@android:color/white"
             android:textSize="12sp" />
+-->
 
     </LinearLayout>
 </ScrollView>

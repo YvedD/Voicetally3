@@ -1,20 +1,22 @@
 package com.yvesds.voicetally3.ui.tally
 
+import android.view.HapticFeedbackConstants
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.Button
 import android.widget.TextView
+import androidx.appcompat.widget.AppCompatImageButton
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.yvesds.voicetally3.R
 
 /**
- * Tellingen per soort.
- * - ListAdapter met DiffUtil op Map.Entry<String, Int> (Kotlin)
- * - Payload update: bij count-verandering alleen de teller updaten
- * - Stabiele IDs op soortnaam
+ * Toont de tellingen per soort.
+ * - Werkt met item_tally.xml (AppCompatImageButton).
+ * - Accepteert Kotlin Map.Entry zodat call-sites geen conversies hoeven.
+ * - Payload-diffs: alleen count-text updaten voor maximale snelheid.
+ * - Optimistic UI + haptic feedback voor directe respons bij tikken.
  */
 class TallyAdapter(
     private val onIncrement: (String) -> Unit,
@@ -26,17 +28,19 @@ class TallyAdapter(
         setHasStableIds(true)
     }
 
-    override fun getItemId(position: Int): Long = getItem(position).key.hashCode().toLong()
+    override fun getItemId(position: Int): Long {
+        // Stabiel id op basis van soortnaam
+        return getItem(position).key.hashCode().toLong()
+    }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): TallyViewHolder {
         val view = LayoutInflater.from(parent.context)
             .inflate(R.layout.item_tally, parent, false)
-        return TallyViewHolder(view)
+        return TallyViewHolder(view, onIncrement, onDecrement, onReset)
     }
 
     override fun onBindViewHolder(holder: TallyViewHolder, position: Int) {
-        val item = getItem(position)
-        holder.bind(item.key, item.value, onIncrement, onDecrement, onReset)
+        holder.bind(getItem(position))
     }
 
     override fun onBindViewHolder(
@@ -44,40 +48,69 @@ class TallyAdapter(
         position: Int,
         payloads: MutableList<Any>
     ) {
-        if (payloads.contains(PAYLOAD_COUNT_ONLY)) {
-            holder.updateCountOnly(getItem(position).value)
+        val payloadCount = payloads.lastOrNull() as? Int
+        if (payloadCount != null) {
+            holder.updateCountOnly(payloadCount)
             return
         }
         super.onBindViewHolder(holder, position, payloads)
     }
 
-    class TallyViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
-        private val textSpeciesName: TextView = itemView.findViewById(R.id.textSpeciesName)
-        private val textCount: TextView = itemView.findViewById(R.id.textCount)
-        private val buttonIncrement: Button = itemView.findViewById(R.id.buttonIncrement)
-        private val buttonDecrement: Button = itemView.findViewById(R.id.buttonDecrement)
-        private val buttonReset: Button = itemView.findViewById(R.id.buttonReset)
+    class TallyViewHolder(
+        itemView: View,
+        private val onIncrement: (String) -> Unit,
+        private val onDecrement: (String) -> Unit,
+        private val onReset: (String) -> Unit
+    ) : RecyclerView.ViewHolder(itemView) {
 
-        private lateinit var species: String
+        private val txtName: TextView = itemView.findViewById(R.id.textSpeciesName)
+        private val txtCount: TextView = itemView.findViewById(R.id.textCount)
 
-        fun bind(
-            species: String,
-            count: Int,
-            onIncrement: (String) -> Unit,
-            onDecrement: (String) -> Unit,
-            onReset: (String) -> Unit
-        ) {
-            this.species = species
-            textSpeciesName.text = species.replaceFirstChar { it.uppercase() }
-            textCount.text = count.toString()
+        private val btnDec: AppCompatImageButton = itemView.findViewById(R.id.buttonDecrement)
+        private val btnInc: AppCompatImageButton = itemView.findViewById(R.id.buttonIncrement)
+        private val btnReset: AppCompatImageButton = itemView.findViewById(R.id.buttonReset)
 
-            buttonIncrement.setOnClickListener { onIncrement(species) }
-            buttonDecrement.setOnClickListener { onDecrement(species) }
-            buttonReset.setOnClickListener { onReset(species) }
+        private var currentSpecies: String? = null
+        private var localCount: Int = 0
+
+        fun bind(entry: Map.Entry<String, Int>) {
+            val species = entry.key
+            val count = entry.value
+
+            currentSpecies = species
+            localCount = count
+
+            txtName.text = species.replaceFirstChar { it.uppercase() }
+            txtCount.text = localCount.toString()
+
+            btnDec.setOnClickListener {
+                val s = currentSpecies ?: return@setOnClickListener
+                if (localCount > 0) {
+                    localCount -= 1
+                    txtCount.text = localCount.toString() // Optimistic UI
+                }
+                it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                onDecrement(s)
+            }
+            btnInc.setOnClickListener {
+                val s = currentSpecies ?: return@setOnClickListener
+                localCount += 1
+                txtCount.text = localCount.toString() // Optimistic UI
+                it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                onIncrement(s)
+            }
+            btnReset.setOnClickListener {
+                val s = currentSpecies ?: return@setOnClickListener
+                localCount = 0
+                txtCount.text = "0" // Optimistic UI
+                it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                onReset(s)
+            }
         }
 
         fun updateCountOnly(newCount: Int) {
-            textCount.text = newCount.toString()
+            localCount = newCount
+            txtCount.text = newCount.toString()
         }
     }
 
@@ -85,22 +118,19 @@ class TallyAdapter(
         override fun areItemsTheSame(
             oldItem: Map.Entry<String, Int>,
             newItem: Map.Entry<String, Int>
-        ) = oldItem.key == newItem.key
+        ): Boolean = oldItem.key == newItem.key
 
         override fun areContentsTheSame(
             oldItem: Map.Entry<String, Int>,
             newItem: Map.Entry<String, Int>
-        ) = oldItem.value == newItem.value
+        ): Boolean = oldItem.value == newItem.value
 
         override fun getChangePayload(
             oldItem: Map.Entry<String, Int>,
             newItem: Map.Entry<String, Int>
         ): Any? {
-            return if (oldItem.value != newItem.value) PAYLOAD_COUNT_ONLY else null
+            // Alleen count gewijzigd → geef nieuwe count als payload
+            return if (oldItem.value != newItem.value) newItem.value else null
         }
-    }
-
-    private companion object {
-        const val PAYLOAD_COUNT_ONLY = "payload_count"
     }
 }
