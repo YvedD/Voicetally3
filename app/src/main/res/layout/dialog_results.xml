@@ -1,37 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
- Dialooglayout:
- - Titel
- - MapView in vaste hoogte (volwaardige gestures)
- - Resultaten-tekst in een eigen ScrollView met vaste hoogte
- - Actieknoppen onderaan
--->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- Full-screen dialoog: kaart 40%, resultaten 45%, knoppen 15% -->
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/resultsDialogRoot"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:layout_marginBottom="30dp"
     android:background="@android:color/black"
-    android:orientation="vertical"
     android:padding="12dp">
 
-    <!-- Kop -->
+    <!-- Titel -->
     <TextView
         android:id="@+id/txtHeader"
-        android:layout_width="match_parent"
+        style="@style/VT.Text.Title"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:paddingBottom="8dp"
         android:text="Resultaten"
-        android:textColor="@android:color/white"
-        android:textSize="18sp"
-        android:textStyle="bold" />
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
 
-    <!-- Kaart (vaste hoogte) -->
+    <!-- Kaart: 40% hoogte -->
     <FrameLayout
         android:id="@+id/mapHolder"
-        android:layout_width="match_parent"
-        android:layout_height="200dp"
-        android:layout_marginBottom="8dp">
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:layout_marginBottom="8dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHeight_percent="0.4"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/txtHeader">
 
         <org.osmdroid.views.MapView
             android:id="@+id/mapViewResults"
@@ -39,53 +37,61 @@
             android:layout_height="match_parent" />
     </FrameLayout>
 
-    <!-- Resultaten-tekst in eigen scrollgebied (vaste hoogte) -->
+    <!-- Resultaten: 45% hoogte (eigen scroll) -->
     <ScrollView
         android:id="@+id/resultsScroll"
-        android:layout_width="match_parent"
-        android:layout_height="240dp"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
         android:layout_marginBottom="8dp"
         android:fadeScrollbars="false"
-        android:fillViewport="true">
+        android:fillViewport="true"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHeight_percent="0.45"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/mapHolder">
 
         <TextView
             android:id="@+id/txtResults"
+            style="@style/VT.Text.Body"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:lineSpacingExtra="2dp"
-            android:textColor="@android:color/white"
-            android:textSize="14sp" />
+            android:lineSpacingExtra="2dp" />
     </ScrollView>
 
-    <!-- Knoppen -->
+    <!-- Knoppen: 15% hoogte -->
     <LinearLayout
         android:id="@+id/buttonsRow"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
         android:gravity="center"
-        android:orientation="horizontal">
+        android:orientation="horizontal"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHeight_percent="0.10"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/resultsScroll">
 
         <Button
             android:id="@+id/btnOpslaanDelenReset"
             style="@style/Widget.VoiceTally.Button"
             android:layout_width="0dp"
-            android:layout_height="48dp"
+            android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="Opslaan + Delen + Reset"
-            android:textSize="10dp" />
+            android:textAppearance="@style/VT.Text.Button" />
 
         <View
             android:layout_width="8dp"
-            android:layout_height="1dp" />
+            android:layout_height="match_parent" />
 
         <Button
             android:id="@+id/btnNieuweSessie"
             style="@style/Widget.VoiceTally.Button"
             android:layout_width="0dp"
-            android:layout_height="48dp"
+            android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="Nieuwe sessie"
-            android:textSize="10dp" />
+            android:textAppearance="@style/VT.Text.Button" />
     </LinearLayout>
 
-</LinearLayout>
+</androidx.constraintlayout.widget.ConstraintLayout>

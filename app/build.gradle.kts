@@ -28,12 +28,11 @@ android {
     buildTypes {
         debug {
             isDebuggable = true
-            // Debug blijft traag, logisch
         }
         release {
             isMinifyEnabled = false
             isShrinkResources = false
-            isDebuggable = false       // ✅ snellere start
+            isDebuggable = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -65,7 +64,10 @@ dependencies {
     implementation("androidx.navigation:navigation-ui-ktx:2.8.0")
     implementation("androidx.recyclerview:recyclerview:1.4.0")
     implementation("androidx.preference:preference:1.2.1")
-    implementation("com.google.android.material:material:1.11.0")
+
+    // ✅ Hou enkel deze regel voor Material (verwijder 1.11.0)
+    implementation("com.google.android.material:material:1.12.0")
+
     implementation("com.google.android.gms:play-services-location:21.0.1")
     implementation("com.google.dagger:hilt-android:2.50")
     kapt("com.google.dagger:hilt-compiler:2.50")

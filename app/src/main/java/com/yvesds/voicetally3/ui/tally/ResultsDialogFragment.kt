@@ -51,15 +51,19 @@ class ResultsDialogFragment : DialogFragment() {
     private var marker: Marker? = null
     private var accuracyCircle: Polygon? = null
 
-    // UI
     private var txtResults: TextView? = null
 
-    // Huidige (live) status die we in de UI renderen
     private var currentTally: Map<String, Int> = emptyMap()
     private var currentWeather: WeatherManager.FullWeather? = null
     private var currentLat: Double? = null
     private var currentLon: Double? = null
     private var currentPlace: String? = null
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        // ✅ Full-screen dialoogthema
+        setStyle(STYLE_NORMAL, R.style.FullScreenDialogTheme)
+    }
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -71,16 +75,6 @@ class ResultsDialogFragment : DialogFragment() {
         txtResults = root.findViewById(R.id.txtResults)
         mapView = root.findViewById(R.id.mapViewResults)
 
-        // Zorg dat kaartgestures niet door ScrollView/parent onderschept worden
-        mapView?.setOnTouchListener { v, event ->
-            // voorkom dat ouder (dialoog/scroll) dit touch-event overneemt
-            v.parent?.requestDisallowInterceptTouchEvent(
-                event.actionMasked == MotionEvent.ACTION_DOWN || event.actionMasked == MotionEvent.ACTION_MOVE
-            )
-            // laat MapView zijn eigen gestures afhandelen
-            false
-        }
-
         // Init: tally + startlocatie
         currentTally = sharedSpeciesViewModel.tallyMap.value.orEmpty()
         val vmLoc = sharedSpeciesViewModel.gpsLocation.value
@@ -90,10 +84,9 @@ class ResultsDialogFragment : DialogFragment() {
         // OSMDroid + kaart
         initMap(currentLat ?: 51.0, currentLon ?: 4.0)
 
-        // Weer laden + initiele plaatsnaam ophalen, daarna UI renderen
+        // Weer + plaatsnaam laden en UI renderen
         viewLifecycleOwner.lifecycleScope.launch {
             currentWeather = withContext(ioDispatcher) { weatherManager.fetchFullWeather(requireContext()) }
-            // Haal plaatsnaam bij initiele coordinaten
             currentPlace = withContext(ioDispatcher) {
                 val lat = currentLat ?: 51.0
                 val lon = currentLon ?: 4.0
@@ -101,7 +94,7 @@ class ResultsDialogFragment : DialogFragment() {
             }
             renderResultsText()
 
-            // Vraag nog een precieze locatie-update (update marker + plaatsnaam + UI)
+            // Vraag 1 nauwkeurige locatie-update (werkt de marker + plaatsnaam bij)
             requestPreciseLocationUpdate()
 
             root.findViewById<View>(R.id.btnOpslaanDelenReset).setOnClickListener {
@@ -125,11 +118,13 @@ class ResultsDialogFragment : DialogFragment() {
 
     override fun onStart() {
         super.onStart()
-        // Maak dialoog zo breed mogelijk; hoogte mag scrollen als het moet
+        // ✅ Maak de dialog echt schermvullend
         dialog?.window?.setLayout(
             ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
+            ViewGroup.LayoutParams.MATCH_PARENT
         )
+        // Optioneel: animaties/flags
+        dialog?.window?.setGravity(Gravity.TOP)
     }
 
     /** Bouwt de kaart en registreert listeners die realtime de UI bijwerken. */
@@ -144,7 +139,6 @@ class ResultsDialogFragment : DialogFragment() {
             controller.setZoom(16.0)
             controller.setCenter(GeoPoint(lat, lon))
 
-            // Marker (sleepbaar om kleine correcties toe te laten)
             val m = Marker(this).apply {
                 position = GeoPoint(lat, lon)
                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
@@ -163,7 +157,6 @@ class ResultsDialogFragment : DialogFragment() {
             marker = m
             overlays.add(m)
 
-            // Long-press/tap verplaatsen
             val eventsOverlay = MapEventsOverlay(object : MapEventsReceiver {
                 override fun singleTapConfirmedHelper(p: GeoPoint?): Boolean = false
                 override fun longPressHelper(p: GeoPoint?): Boolean {
@@ -180,24 +173,15 @@ class ResultsDialogFragment : DialogFragment() {
         }
     }
 
-    /**
-     * Wordt aangeroepen bij:
-     *  - einde drag van de marker
-     *  - long-press nieuwe plek
-     *  - precise location update
-     */
     private fun onMapPositionChanged(lat: Double, lon: Double, withAccuracy: Double?) {
         currentLat = lat
         currentLon = lon
 
-        // Update accuracy circle (kan null zijn)
         val gp = GeoPoint(lat, lon)
         updateAccuracyCircle(gp, withAccuracy)
 
-        // Schrijf nieuwe GPS weg naar de gedeelde VM
         sharedSpeciesViewModel.setGpsLocation(lat, lon)
 
-        // Haal plaatsnaam async op en render daarna UI
         viewLifecycleOwner.lifecycleScope.launch {
             currentPlace = withContext(ioDispatcher) {
                 weatherManager.getLocalityName(requireContext(), lat, lon)
@@ -206,7 +190,6 @@ class ResultsDialogFragment : DialogFragment() {
         }
     }
 
-    /** Precise location vragen en dan de positie/plaatsnaam doorvoeren. */
     private fun requestPreciseLocationUpdate() {
         val fused = LocationServices.getFusedLocationProviderClient(requireActivity())
         val cts = CancellationTokenSource()
@@ -222,11 +205,10 @@ class ResultsDialogFragment : DialogFragment() {
                 }
             }
             .addOnFailureListener {
-                // Geen update; we blijven op de huidige waarden
+                // stil blijven op huidige waarden
             }
     }
 
-    /** Teken of update een eenvoudige accuracy circle rond de marker. */
     private fun updateAccuracyCircle(center: GeoPoint, radiusMeters: Double?) {
         val mv = mapView ?: return
         accuracyCircle?.let { mv.overlays.remove(it) }
@@ -244,17 +226,15 @@ class ResultsDialogFragment : DialogFragment() {
         mv.invalidate()
     }
 
-    /** Render de resultaten-tekst op basis van de huidige state (tally, weer, locatie). */
     private fun renderResultsText() {
         val t = StringBuilder()
 
-        // Locatieblok bovenaan, altijd zichtbaar met 9 decimalen
         val latStr = currentLat?.let { String.format(Locale.US, "%.9f", it) } ?: "NA"
         val lonStr = currentLon?.let { String.format(Locale.US, "%.9f", it) } ?: "NA"
         val place = currentPlace ?: currentWeather?.locationName ?: "Onbekend"
         t.append(" Locatie: $place ($latStr, $lonStr)\n\n")
 
-        // Tellingen (filter 0's eruit)
+        // Alleen soorten met count > 0
         t.append(" Tellingsoverzicht:\n\n")
         currentTally.entries
             .filter { it.value > 0 }
@@ -263,7 +243,6 @@ class ResultsDialogFragment : DialogFragment() {
                 t.append("${entry.key}: ${entry.value}\n")
             }
 
-        // Weer (optioneel)
         currentWeather?.let { w ->
             t.append("\n️ Weerbericht\n\n")
             t.append(" Tijdstip: ${w.time}\n")
@@ -296,7 +275,6 @@ class ResultsDialogFragment : DialogFragment() {
         val lon = currentLon
         val timestamp = getTimestamp()
 
-        // Screenshot tekenen (UI) en wegschrijven (IO)
         val bitmap = takeScreenshotOfView(rootView)
         val screenshotUri = withContext(ioDispatcher) { saveScreenshotBitmap(bitmap, timestamp) }
         val uris = withContext(ioDispatcher) {
@@ -351,11 +329,7 @@ class ResultsDialogFragment : DialogFragment() {
         val txtFileName = "log_$timestamp.txt"
         val txtContent = buildString {
             append("=== VoiceTally Log $timestamp ===\n\n")
-            append(
-                "Locatie: ${currentPlace ?: "Onbekend"} (" +
-                        "${String.format(Locale.US, "%.9f", currentLat ?: 0.0)}, " +
-                        "${String.format(Locale.US, "%.9f", currentLon ?: 0.0)})\n\n"
-            )
+            append("Locatie: ${currentPlace ?: "Onbekend"} (${String.format(Locale.US, "%.9f", currentLat ?: 0.0)}, ${String.format(Locale.US, "%.9f", currentLon ?: 0.0)})\n\n")
             append(sharedSpeciesViewModel.exportAllSpeechLogs())
             weather?.let { w ->
                 append("\n--- Weerbericht ---\n")
